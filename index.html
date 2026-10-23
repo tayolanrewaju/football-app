@@ -3,42 +3,70 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Football App</title>
+    <meta name="description" content="NINETY — your matchday scoreboard and league table." />
+    <title>NINETY — Matchday</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="top">
-      <p class="eyebrow">Matchday</p>
-      <h1>Football App</h1>
+    <div class="atmosphere" aria-hidden="true">
+      <div class="sky"></div>
+      <div class="pitch-plane">
+        <div class="pitch-stripes"></div>
+        <div class="pitch-markings"></div>
+      </div>
+    </div>
+
+    <header class="hero">
+      <p class="brand">NINETY</p>
+      <h1 class="headline">Every kick. Every score.</h1>
+      <p class="lede">Log matchday results, nudge live scores, and watch the table move.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="#board">Open board</a>
+        <button type="button" class="btn ghost" data-jump="add">Add a fixture</button>
+      </div>
     </header>
 
-    <nav class="tabs" aria-label="Sections">
-      <button type="button" class="tab is-active" data-view="matches">Matches</button>
-      <button type="button" class="tab" data-view="table">Table</button>
-      <button type="button" class="tab" data-view="add">Add</button>
-    </nav>
+    <div id="board" class="board">
+      <nav class="tabs" aria-label="Sections">
+        <button type="button" class="tab is-active" data-view="matches">Matches</button>
+        <button type="button" class="tab" data-view="table">Table</button>
+        <button type="button" class="tab" data-view="add">Add</button>
+      </nav>
 
-    <main>
-      <section id="matches" class="view is-visible" aria-label="Matches"></section>
-      <section id="table" class="view" aria-label="Table"></section>
-      <section id="add" class="view" aria-label="Add a match">
-        <form id="match-form" class="card form">
-          <label>
-            Home team
-            <input name="home" required maxlength="40" placeholder="Arsenal" />
-          </label>
-          <label>
-            Away team
-            <input name="away" required maxlength="40" placeholder="Chelsea" />
-          </label>
-          <label>
-            Kickoff
-            <input name="kickoff" required maxlength="24" placeholder="Sat 15:00" />
-          </label>
-          <button type="submit" class="primary">Add match</button>
-        </form>
-      </section>
-    </main>
+      <main>
+        <section id="matches" class="view is-visible" aria-label="Matches"></section>
+        <section id="table" class="view" aria-label="Table"></section>
+        <section id="add" class="view" aria-label="Add a match">
+          <form id="match-form" class="form panel">
+            <p class="form-title">New fixture</p>
+            <label>
+              Home team
+              <input name="home" required maxlength="40" placeholder="Arsenal" autocomplete="off" />
+            </label>
+            <label>
+              Away team
+              <input name="away" required maxlength="40" placeholder="Chelsea" autocomplete="off" />
+            </label>
+            <label>
+              Kickoff
+              <input name="kickoff" required maxlength="24" placeholder="Sat 15:00" autocomplete="off" />
+            </label>
+            <button type="submit" class="btn primary wide">Add match</button>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <footer class="foot">
+      <span>NINETY</span>
+      <span>Saved on this device</span>
+    </footer>
 
     <script src="app.js"></script>
   </body>

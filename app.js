@@ -1,4 +1,4 @@
-const STORAGE_KEY = "football-app-matches";
+const STORAGE_KEY = "ninety-matches-v1";
 
 const seedMatches = [
   { id: "m1", home: "Arsenal", away: "Chelsea", homeScore: 2, awayScore: 1, status: "FT", kickoff: "Sat 12:30" },
@@ -21,12 +21,12 @@ const form = document.querySelector("#match-form");
 
 function loadMatches() {
   const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) return seedMatches;
+  if (!saved) return structuredClone(seedMatches);
   try {
     const parsed = JSON.parse(saved);
-    return Array.isArray(parsed) && parsed.length ? parsed : seedMatches;
+    return Array.isArray(parsed) && parsed.length ? parsed : structuredClone(seedMatches);
   } catch {
-    return seedMatches;
+    return structuredClone(seedMatches);
   }
 }
 
@@ -49,48 +49,110 @@ function changeScore(id, side, delta) {
   matches = matches.map((match) => {
     if (match.id !== id) return match;
     const key = side === "home" ? "homeScore" : "awayScore";
+    const otherKey = side === "home" ? "awayScore" : "homeScore";
     const current = match[key] ?? 0;
+    const next = Math.max(0, current + delta);
     return {
       ...match,
       status: match.status === "Upcoming" ? "Live" : match.status,
-      [key]: Math.max(0, current + delta),
+      [key]: next,
+      [otherKey]: match[otherKey] ?? 0,
     };
   });
   save();
   render();
 }
 
+function setStatus(id, status) {
+  matches = matches.map((match) => {
+    if (match.id !== id) return match;
+    const homeScore = match.homeScore ?? 0;
+    const awayScore = match.awayScore ?? 0;
+    if (status === "Live" || status === "FT") {
+      return { ...match, status, homeScore, awayScore };
+    }
+    return { ...match, status, homeScore: null, awayScore: null };
+  });
+  save();
+  render();
+}
+
+function removeMatch(id) {
+  matches = matches.filter((match) => match.id !== id);
+  save();
+  render();
+}
+
+function statusClass(status) {
+  if (status === "Live") return "live";
+  if (status === "FT") return "ft";
+  return "upcoming";
+}
+
 function renderMatches() {
+  if (!matches.length) {
+    const empty = document.createElement("div");
+    empty.className = "panel empty";
+    empty.textContent = "No fixtures yet. Add one to kick things off.";
+    matchesEl.replaceChildren(empty);
+    return;
+  }
+
   matchesEl.replaceChildren(
     ...matches.map((match) => {
       const card = document.createElement("article");
-      card.className = "card match";
-      const statusClass = match.status === "Live" ? "live" : "";
+      card.className = "match";
       card.innerHTML = `
         <div class="meta">
           <span>${escapeHtml(match.kickoff)}</span>
-          <span class="${statusClass}">${escapeHtml(match.status)}</span>
+          <span class="status ${statusClass(match.status)}">${escapeHtml(match.status)}</span>
         </div>
         <div class="teams">
           <div class="team">${escapeHtml(match.home)}</div>
           <div class="score">
             <button type="button" data-action="down" data-side="home" aria-label="Decrease ${escapeHtml(match.home)} score">−</button>
-            <span>${match.homeScore ?? "-"}</span>
+            <span>${match.homeScore ?? "–"}</span>
             <button type="button" data-action="up" data-side="home" aria-label="Increase ${escapeHtml(match.home)} score">+</button>
-            <span>:</span>
+            <span class="sep">:</span>
             <button type="button" data-action="down" data-side="away" aria-label="Decrease ${escapeHtml(match.away)} score">−</button>
-            <span>${match.awayScore ?? "-"}</span>
+            <span>${match.awayScore ?? "–"}</span>
             <button type="button" data-action="up" data-side="away" aria-label="Increase ${escapeHtml(match.away)} score">+</button>
           </div>
           <div class="team away">${escapeHtml(match.away)}</div>
         </div>
+        <div class="actions">
+          ${
+            match.status !== "Live"
+              ? `<button type="button" class="btn small ghost" data-status="Live">Mark live</button>`
+              : ""
+          }
+          ${
+            match.status !== "FT"
+              ? `<button type="button" class="btn small ghost" data-status="FT">Full time</button>`
+              : ""
+          }
+          ${
+            match.status !== "Upcoming"
+              ? `<button type="button" class="btn small ghost" data-status="Upcoming">Reset</button>`
+              : ""
+          }
+          <button type="button" class="btn small danger" data-remove>Remove</button>
+        </div>
       `;
-      card.querySelectorAll("button").forEach((button) => {
+
+      card.querySelectorAll(".score button").forEach((button) => {
         button.addEventListener("click", () => {
           const delta = button.dataset.action === "up" ? 1 : -1;
           changeScore(match.id, button.dataset.side, delta);
         });
       });
+
+      card.querySelectorAll("[data-status]").forEach((button) => {
+        button.addEventListener("click", () => setStatus(match.id, button.dataset.status));
+      });
+
+      card.querySelector("[data-remove]").addEventListener("click", () => removeMatch(match.id));
+
       return card;
     })
   );
@@ -131,14 +193,17 @@ function standings() {
     }
   }
 
-  return [...rows.values()].sort((a, b) => b.points - a.points || b.gf - b.ga - (a.gf - a.ga) || a.team.localeCompare(b.team));
+  return [...rows.values()].sort(
+    (a, b) => b.points - a.points || b.gf - b.ga - (a.gf - a.ga) || a.team.localeCompare(b.team)
+  );
 }
 
 function renderTable() {
   const rows = standings();
   const wrap = document.createElement("div");
-  wrap.className = "card table-wrap";
+  wrap.className = "panel table-wrap";
   if (!rows.length) {
+    wrap.classList.add("empty");
     wrap.textContent = "Add a result and the table will appear here.";
     tableEl.replaceChildren(wrap);
     return;
@@ -152,7 +217,7 @@ function renderTable() {
         ${rows
           .map(
             (row, index) => `
-              <tr>
+              <tr class="${index < 3 ? "podium" : ""}">
                 <td>${index + 1}</td>
                 <td>${escapeHtml(row.team)}</td>
                 <td>${row.played}</td>
@@ -180,15 +245,27 @@ document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => showView(tab.dataset.view));
 });
 
+document.querySelectorAll("[data-jump]").forEach((button) => {
+  button.addEventListener("click", () => {
+    showView(button.dataset.jump);
+    document.querySelector("#board")?.scrollIntoView({ behavior: "smooth" });
+  });
+});
+
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   const data = new FormData(form);
+  const home = String(data.get("home") || "").trim();
+  const away = String(data.get("away") || "").trim();
+  const kickoff = String(data.get("kickoff") || "").trim();
+  if (!home || !away || !kickoff) return;
+
   matches = [
     {
       id: crypto.randomUUID(),
-      home: data.get("home").trim(),
-      away: data.get("away").trim(),
-      kickoff: data.get("kickoff").trim(),
+      home,
+      away,
+      kickoff,
       homeScore: null,
       awayScore: null,
       status: "Upcoming",
