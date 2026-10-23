@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Football App</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <p class="eyebrow">Matchday</p>
+      <h1>Football App</h1>
+    </header>
+
+    <nav class="tabs" aria-label="Sections">
+      <button type="button" class="tab is-active" data-view="matches">Matches</button>
+      <button type="button" class="tab" data-view="table">Table</button>
+      <button type="button" class="tab" data-view="add">Add</button>
+    </nav>
+
+    <main>
+      <section id="matches" class="view is-visible" aria-label="Matches"></section>
+      <section id="table" class="view" aria-label="Table"></section>
+      <section id="add" class="view" aria-label="Add a match">
+        <form id="match-form" class="card form">
+          <label>
+            Home team
+            <input name="home" required maxlength="40" placeholder="Arsenal" />
+          </label>
+          <label>
+            Away team
+            <input name="away" required maxlength="40" placeholder="Chelsea" />
+          </label>
+          <label>
+            Kickoff
+            <input name="kickoff" required maxlength="24" placeholder="Sat 15:00" />
+          </label>
+          <button type="submit" class="primary">Add match</button>
+        </form>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
