@@ -218,6 +218,7 @@ input {
   overflow: hidden;
   margin-bottom: 16px;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+  animation: rise-soft 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .group-title {
@@ -423,10 +424,6 @@ input {
 .chip:active,
 .seg-btn:active {
   transform: scale(0.97);
-}
-
-.group {
-  animation: rise-soft 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .ask-bubble {
