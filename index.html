@@ -20,7 +20,12 @@
             <h1 class="nav-title" id="nav-title">Matches</h1>
           </div>
           <button type="button" class="account-btn" id="account-btn" aria-label="Account">
-            <span id="account-avatar">⌘</span>
+            <span id="account-avatar" class="account-avatar" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.8" />
+                <path d="M5.5 18.2c1.4-3 3.7-4.5 6.5-4.5s5.1 1.5 6.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+            </span>
           </button>
         </header>
 
@@ -39,7 +44,7 @@
               <div id="ask-log" class="ask-log" aria-live="polite"></div>
               <div class="chip-row" id="ask-chips">
                 <button type="button" class="chip" data-q="What matches are live right now?">What’s live?</button>
-                <button type="button" class="chip" data-q="Biggest transfers from the 2026 window">2026 transfers</button>
+                <button type="button" class="chip" data-q="Biggest transfers from the 2027 window">2027 transfers</button>
                 <button type="button" class="chip" data-q="Show my favourite teams">My favourites</button>
                 <button type="button" class="chip" data-q="Tell me about Arsenal squad">Arsenal squad</button>
               </div>
@@ -52,6 +57,11 @@
           </section>
 
           <section id="teams" class="screen" aria-label="Teams">
+            <form id="team-search-form" class="team-search" role="search">
+              <label class="sr-only" for="team-search-input">Search any team in the world</label>
+              <input id="team-search-input" type="search" placeholder="Search any club in the world…" autocomplete="off" />
+              <button type="submit" class="search-go">Search</button>
+            </form>
             <div id="teams-list" class="scroll"></div>
           </section>
 

@@ -52,14 +52,24 @@ function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-let favorites = loadJson(KEYS.favorites, []);
-if (!Array.isArray(favorites)) favorites = [];
+function loadFavorites() {
+  const user = AUTH.currentUser();
+  if (user && Array.isArray(user.favorites)) return [...user.favorites];
+  const local = loadJson(KEYS.favorites, []);
+  return Array.isArray(local) ? local : [];
+}
+
+let favorites = loadFavorites();
 
 let alertSettings = loadJson(KEYS.alerts, {
   enabled: false,
   matchReminders: true,
   transferAlerts: true,
 });
+
+let teamSearchQuery = "";
+let teamSearchResults = [];
+let teamSearchLoading = false;
 
 const els = {
   matchLeagues: document.querySelector("#match-leagues"),
@@ -76,11 +86,22 @@ const els = {
   navBack: document.querySelector("#nav-back"),
   accountBtn: document.querySelector("#account-btn"),
   accountAvatar: document.querySelector("#account-avatar"),
+  teamSearchForm: document.querySelector("#team-search-form"),
+  teamSearchInput: document.querySelector("#team-search-input"),
 };
 
 function persist() {
   saveJson(KEYS.favorites, favorites);
   saveJson(KEYS.alerts, alertSettings);
+  if (AUTH.currentUser()) AUTH.updateFavorites(favorites);
+}
+
+function syncFromAccount() {
+  const user = AUTH.currentUser();
+  if (user && Array.isArray(user.favorites)) {
+    favorites = [...user.favorites];
+    saveJson(KEYS.favorites, favorites);
+  }
 }
 
 function logoMarkup(url, fallbackText, color = "#333", sizeClass = "") {
@@ -164,9 +185,15 @@ function updateNav() {
 function refreshAccountButton() {
   const user = AUTH.currentUser();
   if (user) {
+    els.accountAvatar.classList.add("is-user");
     els.accountAvatar.textContent = (user.name || "U").trim().charAt(0).toUpperCase();
   } else {
-    els.accountAvatar.textContent = "⌘";
+    els.accountAvatar.classList.remove("is-user");
+    els.accountAvatar.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.8" />
+        <path d="M5.5 18.2c1.4-3 3.7-4.5 6.5-4.5s5.1 1.5 6.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+      </svg>`;
   }
 }
 
@@ -299,7 +326,7 @@ function renderTransfers() {
 
   const note = document.createElement("p");
   note.className = "group-title";
-  note.textContent = "From Jan 2026 window onwards";
+  note.textContent = "From the 2027 window onwards";
   frag.appendChild(note);
 
   const makeGroup = (label, items) => {
@@ -333,16 +360,69 @@ function renderTransfers() {
   els.transfersList.replaceChildren(frag);
 }
 
+function teamRowButton(team, meta = "") {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "team-row";
+  btn.innerHTML = `
+    ${crest(team)}
+    <div>
+      <div class="team-name">${escapeHtml(team.name)}${isFavName(team.name) ? " ★" : ""}</div>
+      <div class="team-meta">${escapeHtml(meta || team.short || team.label || "")}</div>
+    </div>
+    <span class="chev">›</span>
+  `;
+  btn.addEventListener("click", () => {
+    selectedTeam = team;
+    teamSearchQuery = "";
+    teamSearchResults = [];
+    if (els.teamSearchInput) els.teamSearchInput.value = "";
+    renderTeams();
+  });
+  return btn;
+}
+
 function renderTeams() {
   updateNav();
 
-  if (!live.ready && !live.teams.length) {
-    els.teamsList.innerHTML = `<div class="loading">Loading clubs…</div>`;
+  if (selectedTeam) {
+    renderTeamDetail(selectedTeam);
     return;
   }
 
-  if (selectedTeam) {
-    renderTeamDetail(selectedTeam);
+  const frag = document.createDocumentFragment();
+
+  if (teamSearchLoading) {
+    frag.appendChild(Object.assign(document.createElement("div"), { className: "loading", textContent: "Searching world clubs…" }));
+    els.teamsList.replaceChildren(frag);
+    return;
+  }
+
+  if (teamSearchQuery && teamSearchResults.length) {
+    const title = document.createElement("p");
+    title.className = "group-title";
+    title.textContent = `World results for “${teamSearchQuery}”`;
+    const group = document.createElement("div");
+    group.className = "group";
+    teamSearchResults.forEach((team) => group.appendChild(teamRowButton(team, team.label || team.slug)));
+    frag.append(title, group);
+    els.teamsList.replaceChildren(frag);
+    return;
+  }
+
+  if (teamSearchQuery && !teamSearchResults.length) {
+    frag.appendChild(
+      Object.assign(document.createElement("div"), {
+        className: "group",
+        innerHTML: `<div class="empty">No clubs found for “${escapeHtml(teamSearchQuery)}”.</div>`,
+      })
+    );
+    els.teamsList.replaceChildren(frag);
+    return;
+  }
+
+  if (!live.ready && !live.teams.length) {
+    els.teamsList.innerHTML = `<div class="loading">Loading clubs…</div>`;
     return;
   }
 
@@ -356,25 +436,13 @@ function renderTeams() {
     title.innerHTML = `${leagueLogo(league, "crest-xs")}<span>${escapeHtml(league?.name || "Clubs")} · ${teams.length}</span>`;
     const group = document.createElement("div");
     group.className = "group";
-    teams.forEach((team) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "team-row";
-      btn.innerHTML = `
-        ${crest(team)}
-        <div>
-          <div class="team-name">${escapeHtml(team.name)}${isFavName(team.name) ? " ★" : ""}</div>
-          <div class="team-meta">${escapeHtml(team.short || "")}</div>
-        </div>
-        <span class="chev">›</span>
-      `;
-      btn.addEventListener("click", () => {
-        selectedTeam = team;
-        renderTeams();
-      });
-      group.appendChild(btn);
-    });
-    els.teamsList.replaceChildren(title, group);
+    if (!teams.length) {
+      group.innerHTML = `<div class="empty">No clubs loaded for this league yet. Pull refresh from Matches.</div>`;
+    } else {
+      teams.forEach((team) => group.appendChild(teamRowButton(team, team.short)));
+    }
+    frag.append(title, group);
+    els.teamsList.replaceChildren(frag);
     return;
   }
 
@@ -405,7 +473,8 @@ function renderTeams() {
       });
       group.appendChild(btn);
     });
-  els.teamsList.replaceChildren(title, group);
+  frag.append(title, group);
+  els.teamsList.replaceChildren(frag);
 }
 
 async function renderTeamDetail(team) {
@@ -595,8 +664,16 @@ function renderAccount() {
     card.innerHTML = `
       <p class="intel-title">${escapeHtml(user.name)}</p>
       <p class="intel-note">${escapeHtml(user.email || user.username || user.phone || "")}</p>
-      <p class="intel-note">Via ${escapeHtml(user.provider)}</p>
+      <p class="intel-note">Via ${escapeHtml(user.provider)} · ${favorites.length} favourites saved</p>
     `;
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "primary-action";
+    save.textContent = "Save favourites to account";
+    save.addEventListener("click", () => {
+      AUTH.updateFavorites(favorites);
+      renderAccount();
+    });
     const out = document.createElement("button");
     out.type = "button";
     out.className = "primary-action secondary";
@@ -606,7 +683,7 @@ function renderAccount() {
       refreshAccountButton();
       renderAccount();
     });
-    wrap.append(title, card, out);
+    wrap.append(title, card, save, out);
     els.accountList.replaceChildren(wrap);
     return;
   }
@@ -623,6 +700,8 @@ function renderAccount() {
   apple.textContent = "Continue with Apple";
   apple.addEventListener("click", () => {
     AUTH.socialLogin("apple");
+    syncFromAccount();
+    AUTH.updateFavorites(favorites);
     refreshAccountButton();
     renderAccount();
   });
@@ -632,6 +711,8 @@ function renderAccount() {
   google.textContent = "Continue with Google";
   google.addEventListener("click", () => {
     AUTH.socialLogin("google");
+    syncFromAccount();
+    AUTH.updateFavorites(favorites);
     refreshAccountButton();
     renderAccount();
   });
@@ -690,6 +771,7 @@ function renderAccount() {
           identity: String(data.get("identity") || ""),
           password: String(data.get("password") || ""),
         });
+        syncFromAccount();
       } else {
         AUTH.register({
           name: String(data.get("name") || ""),
@@ -699,6 +781,7 @@ function renderAccount() {
           password: String(data.get("password") || ""),
         });
       }
+      AUTH.updateFavorites(favorites);
       refreshAccountButton();
       renderAccount();
     } catch (err) {
@@ -728,33 +811,25 @@ async function ask(question) {
   const q = String(question || "").trim();
   if (!q) return;
   appendAsk("user", q);
-
-  const team = AI.findTeam(AI.normalize(q), live.teams);
-  let teamDetail = null;
-  let roster = null;
-  let schedule = null;
-  if (team && /lineup|squad|roster|xi|players|about|info|form|tell me/i.test(q)) {
-    try {
-      [teamDetail, roster, schedule] = await Promise.all([
-        API.loadTeamDetail(team.slug, team.espnId || team.id),
-        API.loadRoster(team.slug, team.espnId || team.id),
-        API.loadSchedule(team.slug, team.espnId || team.id),
-      ]);
-    } catch {
-      /* ignore enrichment errors */
+  appendAsk("ai", "Checking live scores, world clubs, squads, and the 2027 board…", "NINETY AI");
+  try {
+    const result = await AI.research(q, {
+      favorites,
+      matches: live.matches,
+      teams: live.teams,
+      transfers: TRANSFERS,
+    });
+    // Replace the thinking bubble with the real answer
+    const bubbles = els.askLog.querySelectorAll(".ask-bubble.ai");
+    const last = bubbles[bubbles.length - 1];
+    if (last) {
+      last.innerHTML = `<p>${escapeHtml(result.text).replaceAll("\n", "<br>")}</p><span class="ask-source">${escapeHtml(result.source || "NINETY AI")}</span>`;
+    } else {
+      appendAsk("ai", result.text, result.source);
     }
+  } catch (err) {
+    appendAsk("ai", `I hit a snag while researching that: ${err.message || err}`, "NINETY AI");
   }
-
-  const result = AI.answerQuestion(q, {
-    favorites,
-    matches: live.matches,
-    teams: live.teams,
-    transfers: TRANSFERS,
-    teamDetail,
-    roster,
-    schedule,
-  });
-  appendAsk("ai", result.text, result.source);
 }
 
 function renderDate() {
@@ -812,18 +887,42 @@ document.querySelectorAll("#ask-chips .chip").forEach((chip) => {
   chip.addEventListener("click", () => ask(chip.dataset.q));
 });
 
+els.teamSearchForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const q = String(els.teamSearchInput.value || "").trim();
+  teamSearchQuery = q;
+  selectedTeam = null;
+  teamsLeagueId = null;
+  if (q.length < 2) {
+    teamSearchResults = [];
+    renderTeams();
+    return;
+  }
+  teamSearchLoading = true;
+  renderTeams();
+  try {
+    teamSearchResults = await API.searchTeams(q);
+  } catch (err) {
+    teamSearchResults = [];
+    console.warn(err);
+  }
+  teamSearchLoading = false;
+  showView("teams");
+});
+
 renderDate();
+syncFromAccount();
 refreshAccountButton();
 showView("matches");
 bootstrapLive();
 setInterval(() => {
   if (document.visibilityState === "visible") bootstrapLive();
-}, 60_000);
+}, 90_000);
 
 if (!els.askLog.children.length) {
   appendAsk(
     "ai",
-    "Ask me about live ESPN scores, 2026 transfers, or any club squad.",
+    "Ask me anything football — I’ll search live scores, world clubs, squads, and the 2027 transfer board together.",
     "NINETY AI"
   );
 }

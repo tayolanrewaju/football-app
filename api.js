@@ -8,6 +8,16 @@
     { id: "ucl", name: "Champions League", slug: "uefa.champions", country: "Europe" },
   ];
 
+  // Forced coloured league marks (dark variants vanish on black UI)
+  const LEAGUE_LOGOS = {
+    pl: "https://a.espncdn.com/i/leaguelogos/soccer/500/23.png",
+    ll: "https://a.espncdn.com/i/leaguelogos/soccer/500/15.png",
+    sa: "https://a.espncdn.com/i/leaguelogos/soccer/500/12.png",
+    bl: "https://a.espncdn.com/i/leaguelogos/soccer/500/10.png",
+    l1: "https://a.espncdn.com/i/leaguelogos/soccer/500/9.png",
+    ucl: "https://a.espncdn.com/i/leaguelogos/soccer/500/2.png",
+  };
+
   const cache = {
     teamsByLeague: {},
     matchesByLeague: {},
@@ -17,11 +27,18 @@
     schedules: {},
   };
 
-  function logoFrom(entity) {
+  function proxyUrl(kind, pathAndQuery) {
+    const clean = String(pathAndQuery).replace(/^\//, "");
+    return `/proxy/espn/${kind}/${clean}`;
+  }
+
+  function logoFrom(entity, { preferColor = true } = {}) {
     if (!entity?.logos?.length) return null;
+    const def = entity.logos.find((l) => l.rel?.includes("default") && !l.rel?.includes("dark"));
+    const anyDef = entity.logos.find((l) => l.rel?.includes("default"));
     const dark = entity.logos.find((l) => l.rel?.includes("dark"));
-    const def = entity.logos.find((l) => l.rel?.includes("default"));
-    return (dark || def || entity.logos[0])?.href || null;
+    if (preferColor) return (def || anyDef || entity.logos[0] || dark)?.href || null;
+    return (dark || def || anyDef || entity.logos[0])?.href || null;
   }
 
   function mapStatus(espnStatus) {
@@ -36,12 +53,26 @@
     return "Upcoming";
   }
 
-  function clockFrom(espnStatus, status) {
+  function clockFrom(espnStatus, status, dateIso) {
     if (status === "Live") {
       return espnStatus?.displayClock || espnStatus?.type?.shortDetail || espnStatus?.type?.detail || "Live";
     }
     if (status === "FT") return "FT";
-    return espnStatus?.type?.shortDetail || espnStatus?.type?.detail || "";
+    if (dateIso) {
+      try {
+        return new Intl.DateTimeFormat("en-GB", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZone: "Europe/London",
+        }).format(new Date(dateIso));
+      } catch {
+        /* fall through */
+      }
+    }
+    return espnStatus?.type?.shortDetail || espnStatus?.type?.detail || "Scheduled";
   }
 
   async function fetchJson(url) {
@@ -50,62 +81,117 @@
     return res.json();
   }
 
+  function yyyymmdd(date) {
+    const y = date.getUTCFullYear();
+    const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(date.getUTCDate()).padStart(2, "0");
+    return `${y}${m}${d}`;
+  }
+
+  function upcomingDateKeys(days = 21) {
+    const keys = [];
+    const start = new Date();
+    for (let i = 0; i < days; i += 1) {
+      const dt = new Date(start);
+      dt.setUTCDate(start.getUTCDate() + i);
+      keys.push(yyyymmdd(dt));
+    }
+    return keys;
+  }
+
+  function mapEvent(event, leagueId) {
+    const comp = event.competitions?.[0];
+    const home = (comp?.competitors || []).find((c) => c.homeAway === "home");
+    const away = (comp?.competitors || []).find((c) => c.homeAway === "away");
+    const status = mapStatus(event.status);
+    return {
+      id: String(event.id),
+      league: leagueId,
+      home: home?.team?.displayName || "Home",
+      away: away?.team?.displayName || "Away",
+      homeId: String(home?.team?.id || ""),
+      awayId: String(away?.team?.id || ""),
+      homeLogo: logoFrom(home?.team),
+      awayLogo: logoFrom(away?.team),
+      homeScore: status === "Upcoming" ? null : Number(home?.score ?? 0),
+      awayScore: status === "Upcoming" ? null : Number(away?.score ?? 0),
+      status,
+      minute: status === "Live" ? clockFrom(event.status, status) : null,
+      kickoff: clockFrom(event.status, status, event.date),
+      start: event.date,
+    };
+  }
+
   async function loadLeagueTeams(league) {
-    if (cache.teamsByLeague[league.id]) return cache.teamsByLeague[league.id];
-    const data = await fetchJson(
-      `https://site.api.espn.com/apis/site/v2/sports/soccer/${league.slug}/teams`
-    );
+    if (cache.teamsByLeague[league.id]?.length) return cache.teamsByLeague[league.id];
+    const data = await fetchJson(proxyUrl("site", `apis/site/v2/sports/soccer/${league.slug}/teams`));
     const raw = data.sports?.[0]?.leagues?.[0]?.teams?.map((t) => t.team) || [];
-    const leagueLogo = logoFrom(data.sports?.[0]?.leagues?.[0]) || null;
     cache.leagueMeta[league.id] = {
       ...league,
-      logo: leagueLogo,
+      logo: LEAGUE_LOGOS[league.id] || logoFrom(data.sports?.[0]?.leagues?.[0]) || null,
     };
-    const teams = raw.map((t) => ({
-      id: String(t.id),
-      espnId: String(t.id),
-      name: t.displayName || t.name,
-      short: t.abbreviation || t.shortDisplayName || "",
-      league: league.id,
-      color: t.color ? `#${t.color}` : "#888",
-      logo: logoFrom(t) || `https://a.espncdn.com/i/teamlogos/soccer/500/${t.id}.png`,
-      slug: league.slug,
-    }));
+    const teams = raw
+      .map((t) => ({
+        id: String(t.id),
+        espnId: String(t.id),
+        name: t.displayName || t.name,
+        short: t.abbreviation || t.shortDisplayName || "",
+        league: league.id,
+        color: t.color ? `#${t.color}` : "#888",
+        logo: logoFrom(t) || `https://a.espncdn.com/i/teamlogos/soccer/500/${t.id}.png`,
+        slug: league.slug,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
     cache.teamsByLeague[league.id] = teams;
     return teams;
   }
 
   async function loadLeagueMatches(league) {
-    const data = await fetchJson(
-      `https://site.api.espn.com/apis/site/v2/sports/soccer/${league.slug}/scoreboard`
+    const dates = upcomingDateKeys(18);
+    // Today without dates + explicit future days
+    const urls = [
+      proxyUrl("site", `apis/site/v2/sports/soccer/${league.slug}/scoreboard`),
+      ...dates.map((d) =>
+        proxyUrl("site", `apis/site/v2/sports/soccer/${league.slug}/scoreboard?dates=${d}`)
+      ),
+    ];
+
+    const bags = await Promise.all(
+      urls.map(async (url) => {
+        try {
+          return await fetchJson(url);
+        } catch {
+          return null;
+        }
+      })
     );
-    if (!cache.leagueMeta[league.id]?.logo) {
-      cache.leagueMeta[league.id] = {
-        ...league,
-        logo: logoFrom(data.leagues?.[0]) || cache.leagueMeta[league.id]?.logo || null,
-      };
+
+    const byId = new Map();
+    for (const data of bags) {
+      if (!data) continue;
+      if (!cache.leagueMeta[league.id]?.logo) {
+        cache.leagueMeta[league.id] = {
+          ...league,
+          logo: LEAGUE_LOGOS[league.id] || logoFrom(data.leagues?.[0]) || null,
+        };
+      }
+      for (const event of data.events || []) {
+        byId.set(String(event.id), mapEvent(event, league.id));
+      }
     }
-    const matches = (data.events || []).map((event) => {
-      const comp = event.competitions?.[0];
-      const home = (comp?.competitors || []).find((c) => c.homeAway === "home");
-      const away = (comp?.competitors || []).find((c) => c.homeAway === "away");
-      const status = mapStatus(event.status);
-      return {
-        id: String(event.id),
-        league: league.id,
-        home: home?.team?.displayName || "Home",
-        away: away?.team?.displayName || "Away",
-        homeId: String(home?.team?.id || ""),
-        awayId: String(away?.team?.id || ""),
-        homeLogo: logoFrom(home?.team),
-        awayLogo: logoFrom(away?.team),
-        homeScore: status === "Upcoming" ? null : Number(home?.score ?? 0),
-        awayScore: status === "Upcoming" ? null : Number(away?.score ?? 0),
-        status,
-        minute: status === "Live" ? clockFrom(event.status, status) : null,
-        kickoff: clockFrom(event.status, status),
-        start: event.date,
-      };
+
+    // Ensure league logo even if scoreboard empty
+    cache.leagueMeta[league.id] = {
+      ...league,
+      ...(cache.leagueMeta[league.id] || {}),
+      logo: LEAGUE_LOGOS[league.id] || cache.leagueMeta[league.id]?.logo || null,
+    };
+
+    const matches = [...byId.values()].sort((a, b) => {
+      const rank = (s) => (s === "Live" ? 0 : s === "Upcoming" ? 1 : 2);
+      const ra = rank(a.status) - rank(b.status);
+      if (ra) return ra;
+      return String(a.start || "").localeCompare(String(b.start || ""));
     });
     cache.matchesByLeague[league.id] = matches;
     return matches;
@@ -115,19 +201,33 @@
     const teams = [];
     const matches = [];
     const leagues = [];
-    for (const league of LEAGUES) {
-      try {
-        const [leagueTeams, leagueMatches] = await Promise.all([
-          loadLeagueTeams(league),
-          loadLeagueMatches(league),
-        ]);
-        teams.push(...leagueTeams);
-        matches.push(...leagueMatches);
-        leagues.push(cache.leagueMeta[league.id] || league);
-      } catch (err) {
-        console.warn("Failed league", league.id, err);
-        leagues.push(cache.leagueMeta[league.id] || league);
-      }
+    const results = await Promise.all(
+      LEAGUES.map(async (league) => {
+        try {
+          const [leagueTeams, leagueMatches] = await Promise.all([
+            loadLeagueTeams(league),
+            loadLeagueMatches(league),
+          ]);
+          return {
+            league: cache.leagueMeta[league.id] || { ...league, logo: LEAGUE_LOGOS[league.id] },
+            teams: leagueTeams,
+            matches: leagueMatches,
+          };
+        } catch (err) {
+          console.warn("Failed league", league.id, err);
+          return {
+            league: { ...league, logo: LEAGUE_LOGOS[league.id] },
+            teams: [],
+            matches: [],
+          };
+        }
+      })
+    );
+
+    for (const row of results) {
+      leagues.push(row.league);
+      teams.push(...row.teams);
+      matches.push(...row.matches);
     }
     return { leagues, teams, matches };
   }
@@ -136,7 +236,7 @@
     const key = `${slug}:${teamId}`;
     if (cache.teamDetails[key]) return cache.teamDetails[key];
     const data = await fetchJson(
-      `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/teams/${teamId}`
+      proxyUrl("site", `apis/site/v2/sports/soccer/${slug}/teams/${teamId}`)
     );
     const t = data.team || {};
     const stats = t.record?.items?.[0]?.stats || [];
@@ -158,6 +258,7 @@
       ga: get("pointsAgainst"),
       stadium: t.franchise?.venue?.fullName || t.nextEvent?.[0]?.competitions?.[0]?.venue?.fullName || "—",
       standingSummary: t.standingSummary || "",
+      slug: t.defaultLeagueSlug || slug,
     };
     cache.teamDetails[key] = detail;
     return detail;
@@ -167,24 +268,12 @@
     const key = `${slug}:${teamId}`;
     if (cache.rosters[key]) return cache.rosters[key];
     const data = await fetchJson(
-      `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/teams/${teamId}/roster`
+      proxyUrl("site", `apis/site/v2/sports/soccer/${slug}/teams/${teamId}/roster`)
     );
-    const groups = data.athletes || [];
-    const players = [];
-    for (const group of groups) {
-      const items = group.items || (group.displayName ? [] : null);
-      if (Array.isArray(group)) {
-        players.push(...group);
-      } else if (items) {
-        for (const p of items) players.push({ ...p, positionGroup: group.position || group.displayName });
-      } else if (group.displayName || group.fullName) {
-        players.push(group);
-      }
-    }
-    // ESPN sometimes returns athletes as array of position groups
+    const athletes = data.athletes || [];
     let flat = [];
-    if (groups.length && groups[0]?.items) {
-      flat = groups.flatMap((g) =>
+    if (athletes.length && athletes[0]?.items) {
+      flat = athletes.flatMap((g) =>
         (g.items || []).map((p) => ({
           name: p.displayName || p.fullName,
           number: p.jersey || p.displayJersey || "",
@@ -192,13 +281,17 @@
         }))
       );
     } else {
-      flat = (Array.isArray(groups) ? groups : []).map((p) => ({
+      flat = athletes.map((p) => ({
         name: p.displayName || p.fullName,
-        number: p.jersey || "",
-        position: p.position?.abbreviation || "",
+        number: p.jersey || p.displayJersey || "",
+        position: p.position?.abbreviation || p.position?.displayName || p.position?.name || "",
       }));
     }
-    const coach = data.coach?.[0]?.displayName || data.coach?.displayName || "—";
+    const coachEntry = Array.isArray(data.coach) ? data.coach[0] : data.coach;
+    const coach =
+      coachEntry?.displayName ||
+      [coachEntry?.firstName, coachEntry?.lastName].filter(Boolean).join(" ") ||
+      "—";
     const roster = { players: flat.filter((p) => p.name), coach };
     cache.rosters[key] = roster;
     return roster;
@@ -209,7 +302,7 @@
     if (cache.schedules[key]) return cache.schedules[key];
     try {
       const data = await fetchJson(
-        `https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/teams/${teamId}/schedule`
+        proxyUrl("site", `apis/site/v2/sports/soccer/${slug}/teams/${teamId}/schedule`)
       );
       const events = data.events || [];
       const played = events
@@ -235,20 +328,50 @@
         };
       });
       const form = lastFive.map((g) => g.result).reverse();
-      const schedule = { lastFive, form };
+      const upcoming = events
+        .filter((e) => e.competitions?.[0]?.status?.type?.state === "pre")
+        .slice(0, 5)
+        .map((e) => mapEvent(e, "search"));
+      const schedule = { lastFive, form, upcoming };
       cache.schedules[key] = schedule;
       return schedule;
     } catch {
-      return { lastFive: [], form: [] };
+      return { lastFive: [], form: [], upcoming: [] };
     }
+  }
+
+  async function searchTeams(query) {
+    const q = String(query || "").trim();
+    if (q.length < 2) return [];
+    const data = await fetchJson(
+      proxyUrl(
+        "site",
+        `apis/common/v3/search?query=${encodeURIComponent(q)}&limit=20&type=team`
+      )
+    );
+    return (data.items || [])
+      .filter((item) => item.type === "team" && (item.sport === "soccer" || !item.sport))
+      .map((item) => ({
+        id: String(item.id),
+        espnId: String(item.id),
+        name: item.displayName || item.name,
+        short: item.abbreviation || "",
+        league: item.defaultLeagueSlug || item.league || "",
+        slug: item.defaultLeagueSlug || item.league || "eng.1",
+        color: item.color ? `#${item.color}` : "#888",
+        logo: logoFrom(item) || `https://a.espncdn.com/i/teamlogos/soccer/500/${item.id}.png`,
+        label: item.label || item.league || "World",
+      }));
   }
 
   window.NINETY_API = {
     LEAGUES,
+    LEAGUE_LOGOS,
     loadAll,
     loadTeamDetail,
     loadRoster,
     loadSchedule,
+    searchTeams,
     logoFrom,
   };
 })();
