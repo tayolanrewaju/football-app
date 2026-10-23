@@ -21,6 +21,7 @@ let matchLeague = "all";
 let currentView = "matches";
 let teamsLeagueId = null;
 let selectedTeam = null;
+let selectedPlayer = null;
 let accountMode = "signin";
 let live = {
   leagues: API.LEAGUES.map((l) => ({ ...l, logo: null })),
@@ -127,12 +128,20 @@ function crest(nameOrTeam, sizeClass = "") {
   const matchLogo =
     live.matches.find((m) => m.home === nameOrTeam)?.homeLogo ||
     live.matches.find((m) => m.away === nameOrTeam)?.awayLogo;
-  return logoMarkup(team?.logo || matchLogo, team?.short || nameOrTeam, team?.color || "#333", sizeClass);
+  const matchColor =
+    live.matches.find((m) => m.home === nameOrTeam)?.homeColor ||
+    live.matches.find((m) => m.away === nameOrTeam)?.awayColor;
+  return logoMarkup(
+    team?.logo || matchLogo,
+    team?.short || nameOrTeam,
+    team?.color || matchColor || "#333",
+    sizeClass
+  );
 }
 
 function leagueLogo(league, sizeClass = "") {
   if (!league) return "";
-  return logoMarkup(league.logo, league.flag || league.name, "#111", sizeClass);
+  return logoMarkup(league.logo, league.flag || league.name, "#1a5cff", sizeClass);
 }
 
 function statusClass(status) {
@@ -159,6 +168,7 @@ function showView(name) {
   if (name !== "teams") {
     teamsLeagueId = null;
     selectedTeam = null;
+    selectedPlayer = null;
   }
   document.querySelectorAll(".tab-bar .tab").forEach((tab) => {
     tab.classList.toggle("is-active", tab.dataset.view === name);
@@ -171,9 +181,11 @@ function showView(name) {
 }
 
 function updateNav() {
-  const deepTeams = currentView === "teams" && (teamsLeagueId || selectedTeam);
+  const deepTeams = currentView === "teams" && (teamsLeagueId || selectedTeam || selectedPlayer);
   els.navBack.hidden = !deepTeams;
-  if (currentView === "teams" && selectedTeam) {
+  if (currentView === "teams" && selectedPlayer) {
+    els.navTitle.textContent = selectedPlayer.name || "Player";
+  } else if (currentView === "teams" && selectedTeam) {
     els.navTitle.textContent = selectedTeam.name;
   } else if (currentView === "teams" && teamsLeagueId) {
     els.navTitle.textContent = live.leagues.find((l) => l.id === teamsLeagueId)?.name || "Teams";
@@ -186,7 +198,11 @@ function refreshAccountButton() {
   const user = AUTH.currentUser();
   if (user) {
     els.accountAvatar.classList.add("is-user");
-    els.accountAvatar.textContent = (user.name || "U").trim().charAt(0).toUpperCase();
+    if (user.picture) {
+      els.accountAvatar.innerHTML = `<img src="${escapeHtml(user.picture)}" alt="" referrerpolicy="no-referrer" />`;
+    } else {
+      els.accountAvatar.textContent = (user.name || "U").trim().charAt(0).toUpperCase();
+    }
   } else {
     els.accountAvatar.classList.remove("is-user");
     els.accountAvatar.innerHTML = `
@@ -235,6 +251,19 @@ function renderMatchLeagueSeg() {
   });
 }
 
+function resolveMatchCrest(match, side) {
+  const name = side === "home" ? match.home : match.away;
+  const id = side === "home" ? match.homeId : match.awayId;
+  const logo = side === "home" ? match.homeLogo : match.awayLogo;
+  const color = side === "home" ? match.homeColor : match.awayColor;
+  const team = live.teams.find((t) => t.id === id || t.name === name);
+  return logoMarkup(
+    logo || team?.logo || (id ? `https://a.espncdn.com/i/teamlogos/soccer/500/${id}.png` : null),
+    team?.short || name,
+    color || team?.color || "#333"
+  );
+}
+
 function renderMatches() {
   if (!live.ready && !live.matches.length) {
     els.matchesList.innerHTML = live.error
@@ -271,10 +300,12 @@ function renderMatches() {
     title.className = "group-title league-heading";
     title.innerHTML = `${leagueLogo(league, "crest-xs")}<span>${escapeHtml(league?.name || leagueId)}</span>`;
     const group = document.createElement("div");
-    group.className = "group";
+    group.className = "group match-group";
     matches.forEach((match) => {
       const row = document.createElement("article");
       row.className = `match-row${match.status === "Live" ? " is-live" : ""}`;
+      row.style.setProperty("--home-tint", match.homeColor || "#0a84ff");
+      row.style.setProperty("--away-tint", match.awayColor || "#30d158");
       const scoreHome = match.status === "Upcoming" ? "–" : match.homeScore;
       const scoreAway = match.status === "Upcoming" ? "–" : match.awayScore;
       const clock =
@@ -293,8 +324,8 @@ function renderMatches() {
           <span>${isFavName(match.home) || isFavName(match.away) ? "★ Following" : ""}</span>
         </div>
         <div class="match-teams">
-          <div class="club-line">${logoMarkup(match.homeLogo, match.home)}<span>${escapeHtml(match.home)}</span></div>
-          <div class="club-line">${logoMarkup(match.awayLogo, match.away)}<span>${escapeHtml(match.away)}</span></div>
+          <div class="club-line">${resolveMatchCrest(match, "home")}<span>${escapeHtml(match.home)}</span></div>
+          <div class="club-line">${resolveMatchCrest(match, "away")}<span>${escapeHtml(match.away)}</span></div>
         </div>
         <div class="score-stack"><span>${scoreHome}</span><span>${scoreAway}</span></div>
       `;
@@ -374,6 +405,7 @@ function teamRowButton(team, meta = "") {
   `;
   btn.addEventListener("click", () => {
     selectedTeam = team;
+    selectedPlayer = null;
     teamSearchQuery = "";
     teamSearchResults = [];
     if (els.teamSearchInput) els.teamSearchInput.value = "";
@@ -384,7 +416,10 @@ function teamRowButton(team, meta = "") {
 
 function renderTeams() {
   updateNav();
-
+  if (selectedPlayer && selectedTeam) {
+    renderPlayerDetail(selectedPlayer, selectedTeam);
+    return;
+  }
   if (selectedTeam) {
     renderTeamDetail(selectedTeam);
     return;
@@ -393,15 +428,14 @@ function renderTeams() {
   const frag = document.createDocumentFragment();
 
   if (teamSearchLoading) {
-    frag.appendChild(Object.assign(document.createElement("div"), { className: "loading", textContent: "Searching world clubs…" }));
-    els.teamsList.replaceChildren(frag);
+    els.teamsList.innerHTML = `<div class="loading">Searching the world…</div>`;
     return;
   }
 
   if (teamSearchQuery && teamSearchResults.length) {
     const title = document.createElement("p");
     title.className = "group-title";
-    title.textContent = `World results for “${teamSearchQuery}”`;
+    title.textContent = `Results for “${teamSearchQuery}”`;
     const group = document.createElement("div");
     group.className = "group";
     teamSearchResults.forEach((team) => group.appendChild(teamRowButton(team, team.label || team.slug)));
@@ -411,36 +445,19 @@ function renderTeams() {
   }
 
   if (teamSearchQuery && !teamSearchResults.length) {
-    frag.appendChild(
-      Object.assign(document.createElement("div"), {
-        className: "group",
-        innerHTML: `<div class="empty">No clubs found for “${escapeHtml(teamSearchQuery)}”.</div>`,
-      })
-    );
-    els.teamsList.replaceChildren(frag);
-    return;
-  }
-
-  if (!live.ready && !live.teams.length) {
-    els.teamsList.innerHTML = `<div class="loading">Loading clubs…</div>`;
+    els.teamsList.innerHTML = `<div class="group"><div class="empty">No clubs found for “${escapeHtml(teamSearchQuery)}”.</div></div>`;
     return;
   }
 
   if (teamsLeagueId) {
     const league = live.leagues.find((l) => l.id === teamsLeagueId);
-    const teams = live.teams
-      .filter((t) => t.league === teamsLeagueId)
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const teams = live.teams.filter((t) => t.league === teamsLeagueId);
     const title = document.createElement("p");
     title.className = "group-title league-heading";
-    title.innerHTML = `${leagueLogo(league, "crest-xs")}<span>${escapeHtml(league?.name || "Clubs")} · ${teams.length}</span>`;
+    title.innerHTML = `${leagueLogo(league, "crest-xs")}<span>${escapeHtml(league?.name || "League")}</span>`;
     const group = document.createElement("div");
     group.className = "group";
-    if (!teams.length) {
-      group.innerHTML = `<div class="empty">No clubs loaded for this league yet. Pull refresh from Matches.</div>`;
-    } else {
-      teams.forEach((team) => group.appendChild(teamRowButton(team, team.short)));
-    }
+    teams.forEach((team) => group.appendChild(teamRowButton(team)));
     frag.append(title, group);
     els.teamsList.replaceChildren(frag);
     return;
@@ -448,33 +465,79 @@ function renderTeams() {
 
   const title = document.createElement("p");
   title.className = "group-title";
-  title.textContent = "Top flight Europe";
+  title.textContent = "Browse leagues";
   const group = document.createElement("div");
   group.className = "group";
-  live.leagues
-    .filter((l) => l.id !== "ucl")
-    .forEach((league) => {
-      const count = live.teams.filter((t) => t.league === league.id).length;
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "team-row";
-      btn.innerHTML = `
-        ${leagueLogo(league)}
-        <div>
-          <div class="team-name">${escapeHtml(league.name)}</div>
-          <div class="team-meta">${count} clubs · ${escapeHtml(league.country)}</div>
-        </div>
-        <span class="chev">›</span>
-      `;
-      btn.addEventListener("click", () => {
-        teamsLeagueId = league.id;
-        selectedTeam = null;
-        renderTeams();
-      });
-      group.appendChild(btn);
+  live.leagues.forEach((league) => {
+    const count = live.teams.filter((t) => t.league === league.id).length;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "team-row";
+    btn.innerHTML = `
+      ${leagueLogo(league)}
+      <div>
+        <div class="team-name">${escapeHtml(league.name)}</div>
+        <div class="team-meta">${count} clubs · ${escapeHtml(league.country || "")}</div>
+      </div>
+      <span class="chev">›</span>
+    `;
+    btn.addEventListener("click", () => {
+      teamsLeagueId = league.id;
+      renderTeams();
     });
+    group.appendChild(btn);
+  });
   frag.append(title, group);
   els.teamsList.replaceChildren(frag);
+}
+
+function playerRowButton(player, team) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "player-row";
+  const face = player.headshot
+    ? `<span class="player-face"><img src="${escapeHtml(player.headshot)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.classList.add('is-fallback');this.remove();" /></span>`
+    : `<span class="player-face is-fallback">${escapeHtml((player.name || "?").charAt(0))}</span>`;
+  btn.innerHTML = `
+    ${face}
+    <div>
+      <div class="team-name">${player.number ? `#${escapeHtml(player.number)} ` : ""}${escapeHtml(player.name)}</div>
+      <div class="team-meta">${escapeHtml(player.positionName || player.position || "")}${
+        player.appearances ? ` · ${player.appearances} apps` : ""
+      }${player.goals ? ` · ${player.goals} G` : ""}</div>
+    </div>
+    <span class="chev">›</span>
+  `;
+  btn.addEventListener("click", () => {
+    selectedPlayer = player;
+    renderTeams();
+  });
+  return btn;
+}
+
+function formationMarkup(formation, teamColor = "#30d158") {
+  if (!formation?.lines?.length) return "";
+  const lines = formation.lines
+    .map((line) => {
+      const slots = (line.players || [])
+        .map(
+          (p) => `
+          <button type="button" class="pitch-player" data-pid="${escapeHtml(p.id)}">
+            <span class="pitch-kit" style="--kit:${teamColor}">${escapeHtml(p.number || p.position || "·")}</span>
+            <span class="pitch-name">${escapeHtml((p.name || "").split(" ").slice(-1)[0])}</span>
+          </button>`
+        )
+        .join("");
+      return `<div class="pitch-line pitch-${escapeHtml(line.key)}">${slots}</div>`;
+    })
+    .join("");
+  return `
+    <div class="pitch" style="--pitch-accent:${teamColor}">
+      <div class="pitch-markings" aria-hidden="true"></div>
+      <p class="pitch-shape">${escapeHtml(formation.shape || "4-3-3")}</p>
+      ${lines}
+    </div>
+  `;
 }
 
 async function renderTeamDetail(team) {
@@ -487,11 +550,15 @@ async function renderTeamDetail(team) {
       API.loadSchedule(team.slug, team.espnId || team.id),
     ]);
 
+    if (selectedTeam !== team || selectedPlayer) return;
+
+    const accent = detail.color || team.color || "#0a84ff";
     const header = document.createElement("div");
-    header.className = "group";
+    header.className = "group team-hero";
+    header.style.setProperty("--team-accent", accent);
     header.innerHTML = `
       <div class="fav-row">
-        ${crest({ ...team, logo: detail.logo || team.logo }, "crest-lg")}
+        ${crest({ ...team, logo: detail.logo || team.logo, color: accent }, "crest-lg")}
         <div>
           <div class="team-name">${escapeHtml(detail.name || team.name)}</div>
           <div class="team-meta">${escapeHtml(detail.record || "—")}${detail.points != null ? ` · ${detail.points} pts` : ""}</div>
@@ -549,19 +616,117 @@ async function renderTeamDetail(team) {
       t.textContent = `Squad · ${roster.players.length}`;
       const g = document.createElement("div");
       g.className = "group";
-      roster.players.slice(0, 25).forEach((p, i) => {
-        const row = document.createElement("div");
-        row.className = "setting-row";
-        row.innerHTML = `<strong>${p.number ? `#${escapeHtml(p.number)} ` : ""}${escapeHtml(p.name)}</strong><span>${escapeHtml(p.position || "")}</span>`;
-        if (i === 0) row.style.borderTop = "0";
-        g.appendChild(row);
-      });
+      roster.players.forEach((p) => g.appendChild(playerRowButton(p, team)));
       blocks.push(t, g);
+
+      const ft = document.createElement("p");
+      ft.className = "group-title";
+      ft.textContent = `Starting XI · ${roster.formation?.shape || "4-3-3"}`;
+      const fg = document.createElement("div");
+      fg.className = "group pitch-wrap";
+      fg.innerHTML = formationMarkup(roster.formation, accent);
+      fg.querySelectorAll("[data-pid]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const player = roster.players.find((p) => p.id === btn.dataset.pid);
+          if (!player) return;
+          selectedPlayer = player;
+          renderTeams();
+        });
+      });
+      blocks.push(ft, fg);
     }
 
     els.teamsList.replaceChildren(...blocks);
   } catch (err) {
     els.teamsList.innerHTML = `<div class="group"><div class="empty">Couldn’t load club details.<br>${escapeHtml(err.message || err)}</div></div>`;
+  }
+}
+
+function statCards(player) {
+  const highlight = [
+    { label: "Apps", value: player.appearances },
+    { label: "Goals", value: player.goals },
+    { label: "Assists", value: player.assists },
+    { label: "Shots", value: player.shots },
+    { label: "On target", value: player.shotsOnTarget },
+    { label: "Yellow", value: player.yellowCards },
+    { label: "Red", value: player.redCards },
+    { label: "Saves", value: player.saves },
+  ].filter((s) => s.value != null && s.value !== "" && !(s.label === "Saves" && !s.value && player.position !== "G"));
+
+  if (!highlight.length && player.stats?.length) {
+    return player.stats.slice(0, 8).map((s) => ({ label: s.short || s.label, value: s.value }));
+  }
+  return highlight;
+}
+
+async function renderPlayerDetail(player, team) {
+  els.teamsList.innerHTML = `<div class="loading">Loading ${escapeHtml(player.name)}…</div>`;
+  updateNav();
+  try {
+    const full = await API.loadPlayerStats(player.id, player);
+    if (selectedPlayer?.id !== player.id) return;
+
+    const accent = team.color || "#0a84ff";
+    const cards = statCards(full);
+    const face = full.headshot
+      ? `<img class="player-hero-img" src="${escapeHtml(full.headshot)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()" />`
+      : "";
+
+    const header = document.createElement("div");
+    header.className = "group player-hero";
+    header.style.setProperty("--team-accent", accent);
+    header.innerHTML = `
+      <div class="player-hero-top">
+        ${face}
+        <div>
+          <p class="player-number">${full.number ? `#${escapeHtml(full.number)}` : ""}</p>
+          <h2 class="player-hero-name">${escapeHtml(full.name)}</h2>
+          <p class="intel-note">${escapeHtml(full.positionName || full.position || "")}${
+            full.nationality ? ` · ${escapeHtml(full.nationality)}` : ""
+          }${full.age ? ` · Age ${escapeHtml(full.age)}` : ""}</p>
+          <p class="intel-note">${escapeHtml(team.name)}${full.height ? ` · ${escapeHtml(full.height)}` : ""}</p>
+        </div>
+      </div>
+      <div class="stat-grid">
+        ${cards
+          .map(
+            (s) => `
+          <div class="stat-card">
+            <span class="stat-value">${escapeHtml(s.value)}</span>
+            <span class="stat-label">${escapeHtml(s.label)}</span>
+          </div>`
+          )
+          .join("")}
+      </div>
+    `;
+
+    const blocks = [header];
+
+    if (full.stats?.length) {
+      const t = document.createElement("p");
+      t.className = "group-title";
+      t.textContent = full.seasonLabel || "Season stats";
+      const g = document.createElement("div");
+      g.className = "group";
+      full.stats.forEach((s, i) => {
+        const row = document.createElement("div");
+        row.className = "setting-row";
+        if (i === 0) row.style.borderTop = "0";
+        row.innerHTML = `<strong>${escapeHtml(s.label)}</strong><span>${escapeHtml(s.value)}</span>`;
+        g.appendChild(row);
+      });
+      blocks.push(t, g);
+    } else {
+      const empty = document.createElement("div");
+      empty.className = "group";
+      empty.innerHTML = `<div class="empty">No detailed season stats published for this player yet.</div>`;
+      blocks.push(empty);
+    }
+
+    els.teamsList.replaceChildren(...blocks);
+  } catch (err) {
+    els.teamsList.innerHTML = `<div class="group"><div class="empty">Couldn’t load player stats.<br>${escapeHtml(err.message || err)}</div></div>`;
   }
 }
 
@@ -591,7 +756,7 @@ function renderFavourites() {
           </div>
           <button type="button" class="star-btn" data-unfav>★</button>
         </div>
-        <div class="intel-row"><p class="intel-note">Open the club page for live form and squad.</p></div>
+        <div class="intel-row"><p class="intel-note">Open the club page for live form, squad, and formation.</p></div>
       `;
       group.querySelector("[data-unfav]").addEventListener("click", () => toggleFavorite(name));
       if (team) {
@@ -603,6 +768,7 @@ function renderFavourites() {
           showView("teams");
           teamsLeagueId = team.league;
           selectedTeam = team;
+          selectedPlayer = null;
           renderTeams();
         });
         group.appendChild(open);
@@ -622,7 +788,7 @@ function renderFavourites() {
       <label class="switch"><input type="checkbox" id="alert-matches" ${alertSettings.matchReminders ? "checked" : ""} /><span></span></label>
     </div>
     <div class="setting-row">
-      <label><strong>Transfer pings</strong><span>2026 window deals</span></label>
+      <label><strong>Transfer pings</strong><span>2027 window deals</span></label>
       <label class="switch"><input type="checkbox" id="alert-transfers" ${alertSettings.transferAlerts ? "checked" : ""} /><span></span></label>
     </div>
   `;
@@ -651,6 +817,24 @@ function renderFavourites() {
   els.favouritesList.replaceChildren(frag);
 }
 
+function setAuthError(errorEl, message) {
+  if (!errorEl) return;
+  if (!message) {
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+    return;
+  }
+  errorEl.hidden = false;
+  errorEl.textContent = message;
+}
+
+async function afterAuthSuccess() {
+  syncFromAccount();
+  await AUTH.updateFavorites(favorites);
+  refreshAccountButton();
+  renderAccount();
+}
+
 function renderAccount() {
   const user = AUTH.currentUser();
   const wrap = document.createDocumentFragment();
@@ -670,16 +854,16 @@ function renderAccount() {
     save.type = "button";
     save.className = "primary-action";
     save.textContent = "Save favourites to account";
-    save.addEventListener("click", () => {
-      AUTH.updateFavorites(favorites);
+    save.addEventListener("click", async () => {
+      await AUTH.updateFavorites(favorites);
       renderAccount();
     });
     const out = document.createElement("button");
     out.type = "button";
     out.className = "primary-action secondary";
     out.textContent = "Sign out";
-    out.addEventListener("click", () => {
-      AUTH.logout();
+    out.addEventListener("click", async () => {
+      await AUTH.logout();
       refreshAccountButton();
       renderAccount();
     });
@@ -693,28 +877,47 @@ function renderAccount() {
   title.textContent = "Account";
   const social = document.createElement("div");
   social.className = "group auth-card";
-  social.innerHTML = `<p class="intel-note">Sign in to sync favourites on this device.</p>`;
+  social.innerHTML = `<p class="intel-note">Sign in with Apple or Google — your account is saved on the server so you stay signed in.</p>
+    <div id="google-btn-slot" class="google-btn-slot"></div>
+    <p class="auth-error" id="social-error" hidden></p>`;
+
+  const socialError = social.querySelector("#social-error");
   const apple = document.createElement("button");
   apple.type = "button";
   apple.className = "auth-btn apple";
-  apple.textContent = "Continue with Apple";
-  apple.addEventListener("click", () => {
-    AUTH.socialLogin("apple");
-    syncFromAccount();
-    AUTH.updateFavorites(favorites);
-    refreshAccountButton();
-    renderAccount();
+  apple.innerHTML = `<span class="auth-brand"></span> Continue with Apple`;
+  apple.addEventListener("click", async () => {
+    setAuthError(socialError, "");
+    apple.disabled = true;
+    try {
+      await AUTH.continueWithApple();
+      await afterAuthSuccess();
+    } catch (err) {
+      if (String(err.message || err) !== "Cancelled") {
+        setAuthError(socialError, err.message || "Apple sign-in failed.");
+      }
+    } finally {
+      apple.disabled = false;
+    }
   });
+
   const google = document.createElement("button");
   google.type = "button";
   google.className = "auth-btn google";
-  google.textContent = "Continue with Google";
-  google.addEventListener("click", () => {
-    AUTH.socialLogin("google");
-    syncFromAccount();
-    AUTH.updateFavorites(favorites);
-    refreshAccountButton();
-    renderAccount();
+  google.innerHTML = `<span class="auth-brand google-g">G</span> Continue with Google`;
+  google.addEventListener("click", async () => {
+    setAuthError(socialError, "");
+    google.disabled = true;
+    try {
+      await AUTH.continueWithGoogle();
+      await afterAuthSuccess();
+    } catch (err) {
+      if (String(err.message || err) !== "Cancelled") {
+        setAuthError(socialError, err.message || "Google sign-in failed.");
+      }
+    } finally {
+      google.disabled = false;
+    }
   });
   social.append(apple, google);
 
@@ -757,23 +960,23 @@ function renderAccount() {
   formCard.querySelectorAll("[data-mode]").forEach((btn) => {
     btn.addEventListener("click", () => {
       accountMode = btn.dataset.mode;
-      errorEl.hidden = true;
+      setAuthError(errorEl, "");
       paintForm();
     });
   });
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(form);
+    setAuthError(errorEl, "");
     try {
       if (accountMode === "signin") {
-        AUTH.login({
+        await AUTH.login({
           identity: String(data.get("identity") || ""),
           password: String(data.get("password") || ""),
         });
-        syncFromAccount();
       } else {
-        AUTH.register({
+        await AUTH.register({
           name: String(data.get("name") || ""),
           email: String(data.get("email") || ""),
           username: String(data.get("username") || ""),
@@ -781,18 +984,21 @@ function renderAccount() {
           password: String(data.get("password") || ""),
         });
       }
-      AUTH.updateFavorites(favorites);
-      refreshAccountButton();
-      renderAccount();
+      await afterAuthSuccess();
     } catch (err) {
-      errorEl.hidden = false;
-      errorEl.textContent = err.message || "Something went wrong.";
+      setAuthError(errorEl, err.message || "Something went wrong.");
     }
   });
 
   paintForm();
   wrap.append(title, social, formCard);
   els.accountList.replaceChildren(wrap);
+
+  // Native Google button when GIS client id is configured
+  const slot = social.querySelector("#google-btn-slot");
+  if (slot && AUTH.renderGoogleButton(slot)) {
+    google.hidden = true;
+  }
 }
 
 function appendAsk(role, text, source) {
@@ -819,7 +1025,6 @@ async function ask(question) {
       teams: live.teams,
       transfers: TRANSFERS,
     });
-    // Replace the thinking bubble with the real answer
     const bubbles = els.askLog.querySelectorAll(".ask-bubble.ai");
     const last = bubbles[bubbles.length - 1];
     if (last) {
@@ -857,12 +1062,18 @@ document.querySelectorAll(".tab-bar .tab").forEach((tab) => {
     if (tab.dataset.view === "teams") {
       teamsLeagueId = null;
       selectedTeam = null;
+      selectedPlayer = null;
     }
     showView(tab.dataset.view);
   });
 });
 
 els.navBack.addEventListener("click", () => {
+  if (selectedPlayer) {
+    selectedPlayer = null;
+    renderTeams();
+    return;
+  }
   if (selectedTeam) {
     selectedTeam = null;
     renderTeams();
@@ -892,6 +1103,7 @@ els.teamSearchForm?.addEventListener("submit", async (event) => {
   const q = String(els.teamSearchInput.value || "").trim();
   teamSearchQuery = q;
   selectedTeam = null;
+  selectedPlayer = null;
   teamsLeagueId = null;
   if (q.length < 2) {
     teamSearchResults = [];
@@ -910,10 +1122,23 @@ els.teamSearchForm?.addEventListener("submit", async (event) => {
   showView("teams");
 });
 
+window.addEventListener("ninety-auth", async () => {
+  await afterAuthSuccess();
+});
+
 renderDate();
-syncFromAccount();
 refreshAccountButton();
 showView("matches");
+
+AUTH.init()
+  .then(() => {
+    syncFromAccount();
+    favorites = loadFavorites();
+    refreshAccountButton();
+    if (currentView === "account") renderAccount();
+  })
+  .catch(() => {});
+
 bootstrapLive();
 setInterval(() => {
   if (document.visibilityState === "visible") bootstrapLive();

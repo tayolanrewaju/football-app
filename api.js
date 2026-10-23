@@ -25,6 +25,7 @@
     teamDetails: {},
     rosters: {},
     schedules: {},
+    players: {},
   };
 
   function proxyUrl(kind, pathAndQuery) {
@@ -33,12 +34,25 @@
   }
 
   function logoFrom(entity, { preferColor = true } = {}) {
-    if (!entity?.logos?.length) return null;
+    if (!entity) return null;
+    if (typeof entity.logo === "string" && entity.logo) return entity.logo;
+    if (!entity.logos?.length) {
+      if (entity.id) return `https://a.espncdn.com/i/teamlogos/soccer/500/${entity.id}.png`;
+      return null;
+    }
     const def = entity.logos.find((l) => l.rel?.includes("default") && !l.rel?.includes("dark"));
     const anyDef = entity.logos.find((l) => l.rel?.includes("default"));
     const dark = entity.logos.find((l) => l.rel?.includes("dark"));
     if (preferColor) return (def || anyDef || entity.logos[0] || dark)?.href || null;
     return (dark || def || anyDef || entity.logos[0])?.href || null;
+  }
+
+  function teamLogo(team) {
+    if (!team) return null;
+    return (
+      logoFrom(team) ||
+      (team.id ? `https://a.espncdn.com/i/teamlogos/soccer/500/${team.id}.png` : null)
+    );
   }
 
   function mapStatus(espnStatus) {
@@ -99,20 +113,127 @@
     return keys;
   }
 
+  function flattenStats(statistics) {
+    const out = [];
+    const cats = statistics?.splits?.categories || [];
+    for (const cat of cats) {
+      for (const s of cat.stats || []) {
+        out.push({
+          category: cat.displayName || cat.name || "",
+          name: s.name,
+          label: s.displayName || s.shortDisplayName || s.abbreviation || s.name,
+          short: s.abbreviation || s.shortDisplayName || s.name,
+          value: s.displayValue != null ? s.displayValue : s.value,
+          raw: typeof s.value === "number" ? s.value : Number(s.value) || 0,
+        });
+      }
+    }
+    return out;
+  }
+
+  function pickStat(stats, names) {
+    const list = Array.isArray(names) ? names : [names];
+    for (const name of list) {
+      const hit = stats.find((s) => s.name === name);
+      if (hit) return hit.raw;
+    }
+    return 0;
+  }
+
+  function mapPlayer(p, groupPos = "") {
+    const stats = flattenStats(p.statistics);
+    const position =
+      p.position?.abbreviation || p.position?.displayName || p.position?.name || groupPos || "";
+    const headshot =
+      p.headshot?.href ||
+      p.headshot?.href ||
+      (p.id ? `https://a.espncdn.com/i/headshots/soccer/players/full/${p.id}.png` : null);
+    return {
+      id: String(p.id || ""),
+      name: p.displayName || p.fullName || p.name,
+      number: p.jersey || p.displayJersey || "",
+      position,
+      positionName: p.position?.displayName || position,
+      age: p.age || null,
+      height: p.displayHeight || "",
+      nationality: p.citizenship || p.flag?.alt || "",
+      headshot,
+      stats,
+      appearances: pickStat(stats, "appearances"),
+      goals: pickStat(stats, "totalGoals"),
+      assists: pickStat(stats, ["goalAssists", "assists"]),
+      yellowCards: pickStat(stats, "yellowCards"),
+      redCards: pickStat(stats, "redCards"),
+      saves: pickStat(stats, "saves"),
+      shots: pickStat(stats, "totalShots"),
+      shotsOnTarget: pickStat(stats, "shotsOnTarget"),
+    };
+  }
+
+  function positionLine(pos) {
+    const p = String(pos || "").toUpperCase();
+    if (p === "G" || p === "GK" || p.includes("GOAL")) return "gk";
+    if (["D", "DF", "CB", "LB", "RB", "LWB", "RWB", "DEF"].includes(p) || p.includes("BACK") || p.includes("DEF"))
+      return "def";
+    if (["M", "MF", "CM", "DM", "AM", "CDM", "CAM", "LM", "RM", "MID"].includes(p) || p.includes("MID"))
+      return "mid";
+    return "fwd";
+  }
+
+  function buildFormation(players) {
+    const pools = { gk: [], def: [], mid: [], fwd: [] };
+    for (const p of players || []) {
+      pools[positionLine(p.position)].push(p);
+    }
+    const byApps = (a, b) => (b.appearances || 0) - (a.appearances || 0) || String(a.name).localeCompare(b.name);
+    Object.values(pools).forEach((arr) => arr.sort(byApps));
+
+    const take = (key, n) => pools[key].splice(0, n);
+    let gk = take("gk", 1);
+    let def = take("def", 4);
+    let mid = take("mid", 3);
+    let fwd = take("fwd", 3);
+
+    // Fill gaps from remaining players by appearances
+    const leftover = [...pools.gk, ...pools.def, ...pools.mid, ...pools.fwd].sort(byApps);
+    const need = (arr, n) => {
+      while (arr.length < n && leftover.length) arr.push(leftover.shift());
+    };
+    need(gk, 1);
+    need(def, 4);
+    need(mid, 3);
+    need(fwd, 3);
+
+    return {
+      shape: "4-3-3",
+      lines: [
+        { key: "fwd", label: "Forwards", players: fwd },
+        { key: "mid", label: "Midfield", players: mid },
+        { key: "def", label: "Defence", players: def },
+        { key: "gk", label: "Goalkeeper", players: gk },
+      ],
+      xi: [...fwd, ...mid, ...def, ...gk],
+    };
+  }
+
   function mapEvent(event, leagueId) {
     const comp = event.competitions?.[0];
     const home = (comp?.competitors || []).find((c) => c.homeAway === "home");
     const away = (comp?.competitors || []).find((c) => c.homeAway === "away");
     const status = mapStatus(event.status);
+    const homeTeam = home?.team || {};
+    const awayTeam = away?.team || {};
     return {
       id: String(event.id),
       league: leagueId,
-      home: home?.team?.displayName || "Home",
-      away: away?.team?.displayName || "Away",
-      homeId: String(home?.team?.id || ""),
-      awayId: String(away?.team?.id || ""),
-      homeLogo: logoFrom(home?.team),
-      awayLogo: logoFrom(away?.team),
+      home: homeTeam.displayName || "Home",
+      away: awayTeam.displayName || "Away",
+      homeId: String(homeTeam.id || ""),
+      awayId: String(awayTeam.id || ""),
+      homeLogo: teamLogo(homeTeam),
+      awayLogo: teamLogo(awayTeam),
+      homeColor: homeTeam.color ? `#${homeTeam.color}` : "#333",
+      awayColor: awayTeam.color ? `#${awayTeam.color}` : "#333",
       homeScore: status === "Upcoming" ? null : Number(home?.score ?? 0),
       awayScore: status === "Upcoming" ? null : Number(away?.score ?? 0),
       status,
@@ -138,7 +259,7 @@
         short: t.abbreviation || t.shortDisplayName || "",
         league: league.id,
         color: t.color ? `#${t.color}` : "#888",
-        logo: logoFrom(t) || `https://a.espncdn.com/i/teamlogos/soccer/500/${t.id}.png`,
+        logo: teamLogo(t),
         slug: league.slug,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -148,7 +269,6 @@
 
   async function loadLeagueMatches(league) {
     const dates = upcomingDateKeys(18);
-    // Today without dates + explicit future days
     const urls = [
       proxyUrl("site", `apis/site/v2/sports/soccer/${league.slug}/scoreboard`),
       ...dates.map((d) =>
@@ -180,12 +300,23 @@
       }
     }
 
-    // Ensure league logo even if scoreboard empty
     cache.leagueMeta[league.id] = {
       ...league,
       ...(cache.leagueMeta[league.id] || {}),
       logo: LEAGUE_LOGOS[league.id] || cache.leagueMeta[league.id]?.logo || null,
     };
+
+    // Enrich logos from loaded teams when scoreboard omitted them
+    const teams = cache.teamsByLeague[league.id] || [];
+    const byTeamId = new Map(teams.map((t) => [t.id, t]));
+    for (const match of byId.values()) {
+      const home = byTeamId.get(match.homeId);
+      const away = byTeamId.get(match.awayId);
+      if (!match.homeLogo && home) match.homeLogo = home.logo;
+      if (!match.awayLogo && away) match.awayLogo = away.logo;
+      if (home?.color) match.homeColor = home.color;
+      if (away?.color) match.awayColor = away.color;
+    }
 
     const matches = [...byId.values()].sort((a, b) => {
       const rank = (s) => (s === "Live" ? 0 : s === "Upcoming" ? 1 : 2);
@@ -204,10 +335,8 @@
     const results = await Promise.all(
       LEAGUES.map(async (league) => {
         try {
-          const [leagueTeams, leagueMatches] = await Promise.all([
-            loadLeagueTeams(league),
-            loadLeagueMatches(league),
-          ]);
+          const leagueTeams = await loadLeagueTeams(league);
+          const leagueMatches = await loadLeagueMatches(league);
           return {
             league: cache.leagueMeta[league.id] || { ...league, logo: LEAGUE_LOGOS[league.id] },
             teams: leagueTeams,
@@ -245,7 +374,7 @@
       id: String(t.id || teamId),
       name: t.displayName || t.name,
       short: t.abbreviation,
-      logo: logoFrom(t),
+      logo: teamLogo(t),
       color: t.color ? `#${t.color}` : "#888",
       record: t.record?.items?.[0]?.summary || "",
       rank: get("rank"),
@@ -272,29 +401,103 @@
     );
     const athletes = data.athletes || [];
     let flat = [];
-    if (athletes.length && athletes[0]?.items) {
+    const grouped = athletes.length && Array.isArray(athletes[0]?.items) && athletes[0].items.length;
+    if (grouped) {
       flat = athletes.flatMap((g) =>
-        (g.items || []).map((p) => ({
-          name: p.displayName || p.fullName,
-          number: p.jersey || p.displayJersey || "",
-          position: p.position?.abbreviation || p.position?.displayName || g.position || "",
-        }))
+        (g.items || []).map((p) => mapPlayer(p, g.position || g.displayName || ""))
       );
     } else {
-      flat = athletes.map((p) => ({
-        name: p.displayName || p.fullName,
-        number: p.jersey || p.displayJersey || "",
-        position: p.position?.abbreviation || p.position?.displayName || p.position?.name || "",
-      }));
+      flat = athletes.map((p) => mapPlayer(p));
     }
     const coachEntry = Array.isArray(data.coach) ? data.coach[0] : data.coach;
     const coach =
       coachEntry?.displayName ||
       [coachEntry?.firstName, coachEntry?.lastName].filter(Boolean).join(" ") ||
       "—";
-    const roster = { players: flat.filter((p) => p.name), coach };
+    const players = flat.filter((p) => p.name);
+    const roster = { players, coach, formation: buildFormation(players) };
     cache.rosters[key] = roster;
     return roster;
+  }
+
+  async function loadPlayerStats(playerId, fallbackPlayer = null) {
+    const id = String(playerId || "");
+    if (!id) return fallbackPlayer;
+    if (cache.players[id]) return cache.players[id];
+
+    let overview = null;
+    let athlete = null;
+    try {
+      overview = await fetchJson(
+        proxyUrl("site", `apis/common/v3/sports/soccer/athletes/${id}/overview`)
+      );
+    } catch {
+      overview = null;
+    }
+    try {
+      const data = await fetchJson(
+        proxyUrl("web", `apis/common/v3/sports/soccer/athletes/${id}`)
+      );
+      athlete = data.athlete || null;
+    } catch {
+      athlete = null;
+    }
+
+    const base = fallbackPlayer ? { ...fallbackPlayer } : { id, name: "Player", stats: [] };
+    if (athlete) {
+      base.name = athlete.displayName || athlete.fullName || base.name;
+      base.number = athlete.jersey || base.number;
+      base.position = athlete.position?.abbreviation || base.position;
+      base.positionName = athlete.position?.displayName || base.positionName;
+      base.age = athlete.age || base.age;
+      base.height = athlete.displayHeight || base.height;
+      base.nationality = athlete.citizenship || base.nationality;
+      base.headshot =
+        athlete.headshot?.href ||
+        base.headshot ||
+        `https://a.espncdn.com/i/headshots/soccer/players/full/${id}.png`;
+      base.teamName = athlete.team?.displayName || base.teamName || "";
+    }
+
+    // Prefer overview season split stats when richer
+    const splitStats = overview?.statistics?.splits?.categories
+      ? flattenStats(overview.statistics)
+      : null;
+    if (splitStats?.length) {
+      base.stats = splitStats;
+      base.appearances = pickStat(splitStats, "appearances") || base.appearances;
+      base.goals = pickStat(splitStats, "totalGoals") || base.goals;
+      base.assists = pickStat(splitStats, ["goalAssists", "assists"]) || base.assists;
+      base.yellowCards = pickStat(splitStats, "yellowCards") || base.yellowCards;
+      base.redCards = pickStat(splitStats, "redCards") || base.redCards;
+      base.saves = pickStat(splitStats, "saves") || base.saves;
+      base.shots = pickStat(splitStats, "totalShots") || base.shots;
+      base.shotsOnTarget = pickStat(splitStats, "shotsOnTarget") || base.shotsOnTarget;
+    } else if (overview?.statistics?.names && overview?.statistics?.splits) {
+      // Compact overview format: names + splits.categories[].stats as parallel arrays sometimes
+      const names = overview.statistics.names || [];
+      const labels = overview.statistics.displayNames || overview.statistics.labels || names;
+      const split = overview.statistics.splits?.categories?.[0] || overview.statistics.splits;
+      const values = split?.stats || split?.statistics || [];
+      if (Array.isArray(values) && values.length && typeof values[0] !== "object") {
+        base.stats = names.map((name, i) => ({
+          category: "Season",
+          name,
+          label: labels[i] || name,
+          short: overview.statistics.labels?.[i] || name,
+          value: values[i],
+          raw: Number(values[i]) || 0,
+        }));
+      }
+    }
+
+    if (!base.stats?.length && fallbackPlayer?.stats?.length) {
+      base.stats = fallbackPlayer.stats;
+    }
+
+    base.seasonLabel = "This season";
+    cache.players[id] = base;
+    return base;
   }
 
   async function loadSchedule(slug, teamId) {
@@ -359,7 +562,7 @@
         league: item.defaultLeagueSlug || item.league || "",
         slug: item.defaultLeagueSlug || item.league || "eng.1",
         color: item.color ? `#${item.color}` : "#888",
-        logo: logoFrom(item) || `https://a.espncdn.com/i/teamlogos/soccer/500/${item.id}.png`,
+        logo: teamLogo(item),
         label: item.label || item.league || "World",
       }));
   }
@@ -371,6 +574,8 @@
     loadTeamDetail,
     loadRoster,
     loadSchedule,
+    loadPlayerStats,
+    buildFormation,
     searchTeams,
     logoFrom,
   };
