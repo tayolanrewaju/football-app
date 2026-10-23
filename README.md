@@ -10,8 +10,10 @@ iOS-style football app (FotMob-like) with five tabs:
 
 ## Run locally
 
+Use the proxy server (needed for live ESPN scores/clubs):
+
 ```bash
-python3 -m http.server 4173
+python3 server.py
 ```
 
 Open http://localhost:4173
