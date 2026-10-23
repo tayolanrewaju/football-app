@@ -44,6 +44,10 @@ body {
   pointer-events: none;
 }
 
+.atmosphere * {
+  pointer-events: none;
+}
+
 .sky {
   height: 42vh;
   background:
@@ -339,14 +343,14 @@ body {
 }
 
 .score button {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   border: 1.5px solid var(--line);
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.7);
   color: var(--ink);
   font: inherit;
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   font-weight: 700;
   cursor: pointer;
   transition: background 0.15s ease, transform 0.15s ease;
