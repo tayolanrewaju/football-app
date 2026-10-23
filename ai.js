@@ -1,6 +1,4 @@
 (function () {
-  const DATA = () => window.NINETY_DATA;
-
   function normalize(text) {
     return String(text || "")
       .toLowerCase()
@@ -14,123 +12,144 @@
     return needles.some((n) => hay.includes(n));
   }
 
-  function findTeam(q) {
-    return DATA().teams.find((t) => q.includes(normalize(t.name)) || q.includes(normalize(t.short)));
-  }
-
-  function findPlayer(q) {
-    const pool = [
-      ...DATA().transfers.map((t) => t.player),
-      ...DATA().teams.flatMap((t) => t.lineup?.xi || []),
-    ];
-    const unique = [...new Set(pool)];
+  function findTeam(q, teams) {
+    const list = teams || [];
     return (
-      unique.find((name) => q.includes(normalize(name))) ||
-      unique.find((name) => normalize(name).split(" ").some((part) => part.length > 3 && q.includes(part)))
+      list.find((t) => q.includes(normalize(t.name))) ||
+      list.find((t) => t.short && q.includes(normalize(t.short))) ||
+      list.find((t) => normalize(t.name).split(" ").some((p) => p.length > 3 && q.includes(p)))
     );
   }
 
   function transferLines(list) {
     return list
-      .map((t) => `• ${t.player}: ${t.from} → ${t.to} (${t.fee}, ${t.status}) — ${t.note}`)
+      .map((t) => `• ${t.player}: ${t.from} → ${t.to} (${t.fee}, ${t.status}, ${t.window}) — ${t.note}`)
       .join("\n");
   }
 
   function answerQuestion(raw, ctx = {}) {
     const q = normalize(raw);
-    if (!q) {
-      return { text: "Ask me anything football — live scores, transfers, lineups, or your favourites.", source: "NINETY AI" };
-    }
-
     const favorites = ctx.favorites || [];
-    const team = findTeam(q);
-    const player = findPlayer(q);
+    const matches = ctx.matches || [];
+    const teams = ctx.teams || [];
+    const transfers = ctx.transfers || window.NINETY_DATA?.transfers || [];
+    const facts = window.NINETY_DATA?.facts || [];
 
-    if (includesAny(q, ["hello", "hi ", "hey", "who are you", "what can you"])) {
+    if (!q) {
       return {
-        text: "I'm NINETY AI. Ask about live scores across the big five + UCL, European transfers, club lineups, or your favourites' form.",
+        text: "Ask about live scores, 2026 transfers, a club’s squad, or your favourites.",
         source: "NINETY AI",
       };
     }
 
-    if (includesAny(q, ["live", "score", "scores", "fixture", "fixtures", "match", "matches", "tonight"])) {
-      let list = DATA().matches.filter((m) => m.status === "Live" || m.status === "Upcoming");
-      if (includesAny(q, ["live"])) list = DATA().matches.filter((m) => m.status === "Live");
-      if (team) list = DATA().matches.filter((m) => m.home === team.name || m.away === team.name);
-      if (!list.length) return { text: "No matches match that filter right now.", source: "Scores" };
-      const lines = list
-        .slice(0, 10)
-        .map((m) => {
-          const league = DATA().leagueById[m.league]?.name || m.league;
-          const score =
-            m.status === "Upcoming" ? "vs" : `${m.homeScore ?? 0}-${m.awayScore ?? 0}`;
-          const clock = m.status === "Live" ? ` ${m.minute}'` : ` ${m.status}`;
-          return `• [${league}] ${m.home} ${score} ${m.away}${clock}`;
-        })
-        .join("\n");
-      return { text: `Scores:\n${lines}`, source: "Scores" };
-    }
+    const team = findTeam(q, teams);
 
-    if (includesAny(q, ["transfer", "signing", "deal", "rumour", "rumor", "move"])) {
-      let list = DATA().transfers;
-      if (team) list = list.filter((t) => t.from === team.name || t.to === team.name);
-      if (includesAny(q, ["big", "biggest", "season"])) {
-        list = [...list].sort((a, b) => {
-          const rank = (s) => (s === "Completed" ? 2 : s === "Hot" ? 1 : 0);
-          return rank(b.status) - rank(a.status);
-        });
-      }
-      return { text: `Europe transfers:\n${transferLines(list.slice(0, 8))}`, source: "Transfers" };
-    }
-
-    if (team && includesAny(q, ["lineup", "line up", "xi", "formation", "squad", "about", "info", "tell me"])) {
-      const xi = (team.lineup?.xi || []).join(", ");
-      const form = (team.form || []).join("-");
+    if (includesAny(q, ["hello", "hi", "hey", "who are you", "help"])) {
       return {
-        text: `${team.name} (${DATA().leagueById[team.league]?.name})\nManager: ${team.manager}\nStadium: ${team.stadium}\nFormation: ${team.lineup?.formation}\nXI: ${xi}\nForm: ${form}\n${team.about}`,
-        source: "Teams",
+        text: "I'm NINETY AI. I can summarise live ESPN scores, 2026-window transfers, squads, and your favourites. Try “what’s live?”, “biggest transfers 2026”, or a club name.",
+        source: "NINETY AI",
       };
     }
 
-    if (includesAny(q, ["form", "favourite", "favorite", "following", "my team"])) {
-      if (!favorites.length) {
-        return { text: "Star clubs in Favourites and I'll summarise their last five games.", source: "Favourites" };
+    if (includesAny(q, ["live", "score", "scores", "fixture", "match", "playing", "tonight", "today"])) {
+      let list = matches.slice();
+      if (includesAny(q, ["live"])) list = list.filter((m) => m.status === "Live");
+      else if (includesAny(q, ["upcoming", " tonight", "today"])) {
+        list = list.filter((m) => m.status === "Live" || m.status === "Upcoming");
       }
-      const lines = favorites
-        .map((name) => {
-          const t = DATA().teamByName[name] || DATA().teams.find((x) => x.name === name);
-          if (!t) return `• ${name}`;
-          const last = (t.lastFive || [])
-            .map((g) => `${g.result} ${g.score} vs ${g.opp}`)
-            .join(", ");
-          return `• ${t.name}: ${(t.form || []).join("-")} — ${last}`;
+      if (team) list = matches.filter((m) => m.home === team.name || m.away === team.name);
+      if (!list.length) {
+        return {
+          text: team
+            ? `No matches currently listed for ${team.name}. Pull to refresh on Matches or try again later.`
+            : "No matches matched that. Open Matches to see today’s ESPN slate, or ask “what’s live?”.",
+          source: "Scores",
+        };
+      }
+      const lines = list
+        .slice(0, 12)
+        .map((m) => {
+          const score = m.status === "Upcoming" ? "vs" : `${m.homeScore}-${m.awayScore}`;
+          const clock = m.status === "Live" ? ` ${m.minute || "Live"}` : ` ${m.status}`;
+          return `• ${m.home} ${score} ${m.away}${clock}`;
         })
         .join("\n");
-      return { text: `Your favourites:\n${lines}`, source: "Favourites" };
+      return { text: `Latest scores:\n${lines}`, source: "Live scores" };
     }
 
-    if (player) {
-      const t = DATA().transfers.find((x) => normalize(x.player).includes(normalize(player)));
-      if (t) return { text: transferLines([t]), source: "Transfers" };
-      const club = DATA().teams.find((tm) => (tm.lineup?.xi || []).some((p) => normalize(p).includes(normalize(player))));
-      if (club) {
-        return { text: `${player} is in the ${club.name} squad (${club.lineup.formation}). ${club.about}`, source: "Teams" };
+    if (includesAny(q, ["transfer", "signing", "window", "deal", "rumour", "rumor", "buy", "sold"])) {
+      let list = transfers.slice();
+      if (team) {
+        const name = normalize(team.name);
+        list = list.filter(
+          (t) => normalize(t.from).includes(name) || normalize(t.to).includes(name) || name.includes(normalize(t.from)) || name.includes(normalize(t.to))
+        );
       }
+      if (includesAny(q, ["2026", "summer", "january", "jan", "window"])) {
+        list = list.filter((t) => /2026|ongoing/i.test(t.window));
+      }
+      if (!list.length) {
+        return {
+          text: team
+            ? `No 2026-window deals stored for ${team.name}.`
+            : "No matching 2026 transfers. Ask “biggest transfers 2026”.",
+          source: "Transfers",
+        };
+      }
+      return {
+        text: `Transfers from the 2026 window onwards:\n${transferLines(list.slice(0, 10))}`,
+        source: "Transfers",
+      };
+    }
+
+    if (team && includesAny(q, ["lineup", "squad", "roster", "xi", "players", "about", "info", "form", "tell me"])) {
+      const detail = ctx.teamDetail;
+      const roster = ctx.roster;
+      const schedule = ctx.schedule;
+      const bits = [`${team.name}`];
+      if (detail?.record) bits.push(`Record: ${detail.record}${detail.points != null ? ` · ${detail.points} pts` : ""}`);
+      if (detail?.standingSummary) bits.push(detail.standingSummary);
+      if (schedule?.form?.length) bits.push(`Form: ${schedule.form.join("-")}`);
+      if (roster?.coach) bits.push(`Coach: ${roster.coach}`);
+      if (roster?.players?.length) {
+        bits.push(
+          `Squad sample: ${roster.players
+            .slice(0, 11)
+            .map((p) => (p.number ? `#${p.number} ` : "") + p.name)
+            .join(", ")}`
+        );
+      } else {
+        bits.push("Open the club page in Teams for the full roster.");
+      }
+      return { text: bits.join("\n"), source: "Teams" };
+    }
+
+    if (includesAny(q, ["favourite", "favorite", "following", "my team", "my clubs", "form"])) {
+      if (!favorites.length) {
+        return {
+          text: "Your favourites list is empty. Open Favourites or a club page and tap the star.",
+          source: "Favourites",
+        };
+      }
+      return {
+        text: `You’re following: ${favorites.join(", ")}. Open Favourites for last-five form from this season.`,
+        source: "Favourites",
+      };
     }
 
     if (team) {
       return {
-        text: `${team.name}: ${team.about}\nForm ${(team.form || []).join("-")}. Ask for their lineup for the XI.`,
+        text: `${team.name} (${team.short || "club"}). Ask for their squad, form, or today’s score.`,
         source: "Teams",
       };
     }
 
-    const tip = DATA().facts[Math.floor(Math.random() * DATA().facts.length)];
+    const tip = facts[Math.floor(Math.random() * facts.length)] || "";
     return {
-      text: `Try “live scores”, “biggest transfers”, “Arsenal lineup”, or “my form”.\n\nFact: ${tip}`,
+      text: `I can help with live scores, 2026 transfers, and club squads. Try naming a team or asking “what’s live?”.\n\n${tip}`,
       source: "NINETY AI",
     };
   }
 
-  window.NINETY_AI = { answerQuestion, normalize };
+  window.NINETY_AI = { answerQuestion, normalize, findTeam };
 })();

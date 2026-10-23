@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="theme-color" content="#f2f2f7" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#000000" />
     <meta name="description" content="NINETY — live scores, transfers, teams, favourites, Ask AI." />
     <title>NINETY</title>
     <link rel="stylesheet" href="styles.css" />
@@ -19,6 +19,9 @@
             <p class="nav-eyebrow" id="nav-date"></p>
             <h1 class="nav-title" id="nav-title">Matches</h1>
           </div>
+          <button type="button" class="account-btn" id="account-btn" aria-label="Account">
+            <span id="account-avatar">⌘</span>
+          </button>
         </header>
 
         <main class="screens">
@@ -35,10 +38,10 @@
             <div class="ask-shell">
               <div id="ask-log" class="ask-log" aria-live="polite"></div>
               <div class="chip-row" id="ask-chips">
-                <button type="button" class="chip" data-q="What are the biggest transfers in Europe this season?">Big transfers</button>
-                <button type="button" class="chip" data-q="Which matches are live right now?">Live scores</button>
-                <button type="button" class="chip" data-q="Show my favourite teams form">My form</button>
-                <button type="button" class="chip" data-q="Tell me about Arsenal lineup">Arsenal lineup</button>
+                <button type="button" class="chip" data-q="What matches are live right now?">What’s live?</button>
+                <button type="button" class="chip" data-q="Biggest transfers from the 2026 window">2026 transfers</button>
+                <button type="button" class="chip" data-q="Show my favourite teams">My favourites</button>
+                <button type="button" class="chip" data-q="Tell me about Arsenal squad">Arsenal squad</button>
               </div>
               <form id="ask-form" class="ask-composer">
                 <label class="sr-only" for="ask-input">Your question</label>
@@ -54,6 +57,10 @@
 
           <section id="favourites" class="screen" aria-label="Favourites">
             <div id="favourites-list" class="scroll"></div>
+          </section>
+
+          <section id="account" class="screen" aria-label="Account">
+            <div id="account-list" class="scroll"></div>
           </section>
         </main>
 
@@ -93,6 +100,8 @@
     </div>
 
     <script src="data.js"></script>
+    <script src="api.js"></script>
+    <script src="auth.js"></script>
     <script src="ai.js"></script>
     <script src="app.js"></script>
   </body>
