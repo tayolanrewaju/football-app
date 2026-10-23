@@ -2,115 +2,97 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta
-      name="description"
-      content="NINETY — favourites, transfer alerts, match pings, player market, and AI answers."
-    />
-    <title>NINETY — Matchday</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="theme-color" content="#f2f2f7" />
+    <meta name="description" content="NINETY — live scores, transfers, teams, favourites, Ask AI." />
+    <title>NINETY</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="atmosphere" aria-hidden="true">
-      <div class="sky"></div>
-      <div class="pitch-plane">
-        <div class="pitch-stripes"></div>
-        <div class="pitch-markings"></div>
-      </div>
-    </div>
+    <div class="device">
+      <div class="phone">
+        <div class="notch" aria-hidden="true"><span class="island"></span></div>
 
-    <header class="hero">
-      <p class="brand">NINETY</p>
-      <h1 class="headline">Your clubs. Your alerts.</h1>
-      <p class="lede">
-        Favourite teams, big-transfer radar, match notifications, player market — and an AI you can ask anything.
-      </p>
-      <div class="cta-row">
-        <a class="btn primary" href="#board">Open board</a>
-        <button type="button" class="btn ghost" data-jump="ask">Ask AI</button>
-      </div>
-    </header>
-
-    <div id="board" class="board">
-      <nav class="tabs" aria-label="Sections">
-        <button type="button" class="tab is-active" data-view="matches">Matches</button>
-        <button type="button" class="tab" data-view="transfers">Transfers</button>
-        <button type="button" class="tab" data-view="market">Market</button>
-        <button type="button" class="tab" data-view="favourites">Favourites</button>
-        <button type="button" class="tab" data-view="alerts">Alerts</button>
-        <button type="button" class="tab" data-view="ask">Ask AI</button>
-        <button type="button" class="tab" data-view="table">Table</button>
-        <button type="button" class="tab" data-view="add">Add</button>
-      </nav>
-
-      <main>
-        <section id="matches" class="view is-visible" aria-label="Matches"></section>
-        <section id="transfers" class="view" aria-label="Transfers"></section>
-        <section id="market" class="view" aria-label="Player market"></section>
-        <section id="favourites" class="view" aria-label="Favourite teams"></section>
-        <section id="alerts" class="view" aria-label="Alerts"></section>
-        <section id="ask" class="view" aria-label="Ask AI">
-          <div class="panel ask-panel">
-            <p class="form-title">Ask NINETY AI</p>
-            <p class="ask-hint">Transfers, valuations, fixtures, rules — ask in plain English.</p>
-            <div id="ask-log" class="ask-log" aria-live="polite"></div>
-            <form id="ask-form" class="ask-form">
-              <label class="sr-only" for="ask-input">Your question</label>
-              <input
-                id="ask-input"
-                name="q"
-                required
-                maxlength="240"
-                placeholder="e.g. Biggest transfers for Arsenal?"
-                autocomplete="off"
-              />
-              <button type="submit" class="btn primary">Ask</button>
-            </form>
-            <div class="chip-row" id="ask-chips">
-              <button type="button" class="chip" data-q="What are the biggest transfers right now?">Big transfers</button>
-              <button type="button" class="chip" data-q="Who is rising on the player market?">Market risers</button>
-              <button type="button" class="chip" data-q="When do my favourites play?">My fixtures</button>
-              <button type="button" class="chip" data-q="What is Bukayo Saka worth?">Saka value</button>
-            </div>
+        <header class="nav-bar">
+          <div class="nav-left">
+            <button type="button" class="back-btn" id="nav-back" hidden>‹ Back</button>
+            <p class="nav-eyebrow" id="nav-date"></p>
+            <h1 class="nav-title" id="nav-title">Matches</h1>
           </div>
-        </section>
-        <section id="table" class="view" aria-label="Table"></section>
-        <section id="add" class="view" aria-label="Add a match">
-          <form id="match-form" class="form panel">
-            <p class="form-title">New fixture</p>
-            <label>
-              Home team
-              <input name="home" required maxlength="40" placeholder="Arsenal" list="club-list" autocomplete="off" />
-            </label>
-            <label>
-              Away team
-              <input name="away" required maxlength="40" placeholder="Chelsea" list="club-list" autocomplete="off" />
-            </label>
-            <label>
-              Kickoff label
-              <input name="kickoff" required maxlength="24" placeholder="Sat 15:00" autocomplete="off" />
-            </label>
-            <label>
-              Notify at (optional)
-              <input name="kickoffAt" type="datetime-local" />
-            </label>
-            <button type="submit" class="btn primary wide">Add match</button>
-          </form>
-          <datalist id="club-list"></datalist>
-        </section>
-      </main>
-    </div>
+        </header>
 
-    <footer class="foot">
-      <span>NINETY</span>
-      <span>Saved on this device</span>
-    </footer>
+        <main class="screens">
+          <section id="matches" class="screen is-active" aria-label="Matches">
+            <div class="seg scroll-seg" id="match-leagues" role="tablist" aria-label="Leagues"></div>
+            <div id="matches-list" class="scroll"></div>
+          </section>
+
+          <section id="transfers" class="screen" aria-label="Transfers">
+            <div id="transfers-list" class="scroll"></div>
+          </section>
+
+          <section id="ask" class="screen" aria-label="Ask AI">
+            <div class="ask-shell">
+              <div id="ask-log" class="ask-log" aria-live="polite"></div>
+              <div class="chip-row" id="ask-chips">
+                <button type="button" class="chip" data-q="What are the biggest transfers in Europe this season?">Big transfers</button>
+                <button type="button" class="chip" data-q="Which matches are live right now?">Live scores</button>
+                <button type="button" class="chip" data-q="Show my favourite teams form">My form</button>
+                <button type="button" class="chip" data-q="Tell me about Arsenal lineup">Arsenal lineup</button>
+              </div>
+              <form id="ask-form" class="ask-composer">
+                <label class="sr-only" for="ask-input">Your question</label>
+                <input id="ask-input" name="q" required maxlength="240" placeholder="Ask anything football…" autocomplete="off" />
+                <button type="submit" class="send-btn" aria-label="Send">↑</button>
+              </form>
+            </div>
+          </section>
+
+          <section id="teams" class="screen" aria-label="Teams">
+            <div id="teams-list" class="scroll"></div>
+          </section>
+
+          <section id="favourites" class="screen" aria-label="Favourites">
+            <div id="favourites-list" class="scroll"></div>
+          </section>
+        </main>
+
+        <nav class="tab-bar" aria-label="Main">
+          <button type="button" class="tab is-active" data-view="matches">
+            <span class="tab-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M4 7.5h16M4 12h16M4 16.5h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </span>
+            <span class="tab-label">Matches</span>
+          </button>
+          <button type="button" class="tab" data-view="transfers">
+            <span class="tab-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M7 8h10M7 8l2.5-2.5M7 8l2.5 2.5M17 16H7M17 16l-2.5-2.5M17 16l-2.5 2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="tab-label">Transfers</span>
+          </button>
+          <button type="button" class="tab tab-center" data-view="ask">
+            <span class="tab-fab" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M5 6.5h10a3 3 0 0 1 3 3v4a3 3 0 0 1-3 3H11l-4 3v-3H5a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+            </span>
+            <span class="tab-label">Ask AI</span>
+          </button>
+          <button type="button" class="tab" data-view="teams">
+            <span class="tab-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.2" stroke="currentColor" stroke-width="2"/><path d="M5 19c1.2-3.2 3.6-4.8 7-4.8S17.8 15.8 19 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </span>
+            <span class="tab-label">Teams</span>
+          </button>
+          <button type="button" class="tab" data-view="favourites">
+            <span class="tab-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 4.8l2.1 4.3 4.7.7-3.4 3.3.8 4.7L12 15.6 7.8 17.8l.8-4.7-3.4-3.3 4.7-.7L12 4.8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="tab-label">Favourites</span>
+          </button>
+        </nav>
+      </div>
+    </div>
 
     <script src="data.js"></script>
     <script src="ai.js"></script>

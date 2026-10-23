@@ -1,13 +1,23 @@
 const KEYS = {
-  matches: "ninety-matches-v2",
-  favorites: "ninety-favorites-v1",
+  favorites: "ninety-favorites-v2",
   alerts: "ninety-alerts-v1",
-  notified: "ninety-notified-v1",
-  watchedTransfers: "ninety-watched-transfers-v1",
+};
+
+const TITLES = {
+  matches: "Matches",
+  transfers: "Transfers",
+  ask: "Ask AI",
+  teams: "Teams",
+  favourites: "Favourites",
 };
 
 const DATA = window.NINETY_DATA;
 const AI = window.NINETY_AI;
+
+let matchLeague = "all";
+let currentView = "matches";
+let teamsLeagueId = null;
+let selectedTeamId = null;
 
 function escapeHtml(value) {
   return String(value)
@@ -31,107 +41,44 @@ function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function withDefaultKickoffs(list) {
-  const now = Date.now();
-  return list.map((match, index) => {
-    if (match.kickoffAt) return match;
-    if (match.status !== "Upcoming" && match.status !== "Live") return match;
-    const offsetHours = match.status === "Live" ? -0.5 : 2 + index;
-    return {
-      ...match,
-      kickoffAt: new Date(now + offsetHours * 60 * 60 * 1000).toISOString(),
-    };
-  });
-}
-
-let matches = withDefaultKickoffs(loadJson(KEYS.matches, DATA.seedMatches));
-if (!Array.isArray(matches) || !matches.length) {
-  matches = withDefaultKickoffs(structuredClone(DATA.seedMatches));
-}
-
-let favorites = loadJson(KEYS.favorites, ["Arsenal", "Liverpool"]);
-if (!Array.isArray(favorites)) favorites = ["Arsenal", "Liverpool"];
+let favorites = loadJson(KEYS.favorites, ["Arsenal", "Liverpool", "Real Madrid"]);
+if (!Array.isArray(favorites)) favorites = ["Arsenal", "Liverpool", "Real Madrid"];
 
 let alertSettings = loadJson(KEYS.alerts, {
   enabled: false,
   matchReminders: true,
   transferAlerts: true,
-  minutesBefore: 60,
 });
 
-let notified = loadJson(KEYS.notified, {});
-let watchedTransfers = loadJson(KEYS.watchedTransfers, []);
-
 const els = {
-  matches: document.querySelector("#matches"),
-  transfers: document.querySelector("#transfers"),
-  market: document.querySelector("#market"),
-  favourites: document.querySelector("#favourites"),
-  alerts: document.querySelector("#alerts"),
-  table: document.querySelector("#table"),
-  form: document.querySelector("#match-form"),
+  matchLeagues: document.querySelector("#match-leagues"),
+  matchesList: document.querySelector("#matches-list"),
+  transfersList: document.querySelector("#transfers-list"),
+  teamsList: document.querySelector("#teams-list"),
+  favouritesList: document.querySelector("#favourites-list"),
   askForm: document.querySelector("#ask-form"),
   askLog: document.querySelector("#ask-log"),
   askInput: document.querySelector("#ask-input"),
-  clubList: document.querySelector("#club-list"),
+  navTitle: document.querySelector("#nav-title"),
+  navDate: document.querySelector("#nav-date"),
+  navBack: document.querySelector("#nav-back"),
 };
 
 function persist() {
-  saveJson(KEYS.matches, matches);
   saveJson(KEYS.favorites, favorites);
   saveJson(KEYS.alerts, alertSettings);
-  saveJson(KEYS.notified, notified);
-  saveJson(KEYS.watchedTransfers, watchedTransfers);
 }
 
-function showView(name) {
-  document.querySelectorAll(".tab").forEach((tab) => {
-    tab.classList.toggle("is-active", tab.dataset.view === name);
-  });
-  document.querySelectorAll(".view").forEach((view) => {
-    view.classList.toggle("is-visible", view.id === name);
-  });
-}
-
-function isFavoriteMatch(match) {
-  return favorites.includes(match.home) || favorites.includes(match.away);
-}
-
-function changeScore(id, side, delta) {
-  matches = matches.map((match) => {
-    if (match.id !== id) return match;
-    const key = side === "home" ? "homeScore" : "awayScore";
-    const otherKey = side === "home" ? "awayScore" : "homeScore";
-    const current = match[key] ?? 0;
-    return {
-      ...match,
-      status: match.status === "Upcoming" ? "Live" : match.status,
-      [key]: Math.max(0, current + delta),
-      [otherKey]: match[otherKey] ?? 0,
-    };
-  });
-  persist();
-  render();
-}
-
-function setStatus(id, status) {
-  matches = matches.map((match) => {
-    if (match.id !== id) return match;
-    const homeScore = match.homeScore ?? 0;
-    const awayScore = match.awayScore ?? 0;
-    if (status === "Live" || status === "FT") {
-      return { ...match, status, homeScore, awayScore };
-    }
-    return { ...match, status, homeScore: null, awayScore: null };
-  });
-  persist();
-  render();
-}
-
-function removeMatch(id) {
-  matches = matches.filter((match) => match.id !== id);
-  persist();
-  render();
+function crest(teamName) {
+  const team = DATA.teamByName[teamName] || DATA.teams.find((t) => t.name === teamName);
+  const color = team?.color || "#8e8e93";
+  const initials = (team?.short || teamName)
+    .split(/\s+/)
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 3)
+    .toUpperCase();
+  return `<span class="crest" style="background:${color}">${escapeHtml(initials.slice(0, 3))}</span>`;
 }
 
 function statusClass(status) {
@@ -140,404 +87,424 @@ function statusClass(status) {
   return "upcoming";
 }
 
-function toggleFavorite(team) {
-  if (favorites.includes(team)) {
-    favorites = favorites.filter((t) => t !== team);
-  } else {
-    favorites = [...favorites, team];
-  }
-  persist();
-  render();
-  maybeNotifyTransfers();
+function isFavName(name) {
+  return favorites.includes(name);
 }
 
-function standings() {
-  const rows = new Map();
-  const ensure = (name) => {
-    if (!rows.has(name)) {
-      rows.set(name, { team: name, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, points: 0 });
-    }
-    return rows.get(name);
-  };
+function toggleFavorite(name) {
+  if (favorites.includes(name)) favorites = favorites.filter((t) => t !== name);
+  else favorites = [...favorites, name];
+  persist();
+  render();
+}
 
-  for (const match of matches) {
-    if (match.homeScore == null || match.awayScore == null || match.status === "Upcoming") continue;
-    const home = ensure(match.home);
-    const away = ensure(match.away);
-    home.played += 1;
-    away.played += 1;
-    home.gf += match.homeScore;
-    home.ga += match.awayScore;
-    away.gf += match.awayScore;
-    away.ga += match.homeScore;
-    if (match.homeScore > match.awayScore) {
-      home.won += 1;
-      home.points += 3;
-      away.lost += 1;
-    } else if (match.homeScore < match.awayScore) {
-      away.won += 1;
-      away.points += 3;
-      home.lost += 1;
-    } else {
-      home.drawn += 1;
-      away.drawn += 1;
-      home.points += 1;
-      away.points += 1;
-    }
+function showView(name) {
+  currentView = name;
+  if (name !== "teams") {
+    teamsLeagueId = null;
+    selectedTeamId = null;
   }
+  document.querySelectorAll(".tab-bar .tab").forEach((tab) => {
+    tab.classList.toggle("is-active", tab.dataset.view === name);
+  });
+  document.querySelectorAll(".screen").forEach((screen) => {
+    screen.classList.toggle("is-active", screen.id === name);
+  });
+  updateNav();
+  render();
+}
 
-  return [...rows.values()].sort(
-    (a, b) => b.points - a.points || b.gf - b.ga - (a.gf - a.ga) || a.team.localeCompare(b.team)
-  );
+function updateNav() {
+  els.navBack.hidden = !(currentView === "teams" && (teamsLeagueId || selectedTeamId));
+  if (currentView === "teams" && selectedTeamId) {
+    const team = DATA.teams.find((t) => t.id === selectedTeamId);
+    els.navTitle.textContent = team?.name || "Team";
+  } else if (currentView === "teams" && teamsLeagueId) {
+    els.navTitle.textContent = DATA.leagueById[teamsLeagueId]?.name || "Teams";
+  } else {
+    els.navTitle.textContent = TITLES[currentView] || "NINETY";
+  }
+}
+
+function renderMatchLeagueSeg() {
+  const items = [{ id: "all", name: "All" }, { id: "live", name: "Live" }, { id: "fav", name: "Following" }, ...DATA.leagues];
+  els.matchLeagues.innerHTML = items
+    .map(
+      (l) =>
+        `<button type="button" class="seg-btn${matchLeague === l.id ? " is-on" : ""}" data-league="${l.id}">${escapeHtml(l.name)}</button>`
+    )
+    .join("");
+  els.matchLeagues.querySelectorAll("[data-league]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      matchLeague = btn.dataset.league;
+      renderMatchLeagueSeg();
+      renderMatches();
+    });
+  });
 }
 
 function renderMatches() {
-  const favOnly = favorites.length > 0;
-  const ordered = [...matches].sort((a, b) => {
-    const af = isFavoriteMatch(a) ? 0 : 1;
-    const bf = isFavoriteMatch(b) ? 0 : 1;
-    return af - bf;
+  let list = [...DATA.matches];
+  if (matchLeague === "live") list = list.filter((m) => m.status === "Live");
+  else if (matchLeague === "fav") {
+    list = list.filter((m) => isFavName(m.home) || isFavName(m.away));
+  } else if (matchLeague !== "all") {
+    list = list.filter((m) => m.league === matchLeague);
+  }
+
+  list.sort((a, b) => {
+    const rank = (s) => (s === "Live" ? 0 : s === "Upcoming" ? 1 : 2);
+    return rank(a.status) - rank(b.status);
   });
 
-  if (!ordered.length) {
-    els.matches.replaceChildren(emptyPanel("No fixtures yet. Add one to kick things off."));
+  if (!list.length) {
+    els.matchesList.innerHTML = `<div class="group"><div class="empty">No matches in this filter.</div></div>`;
     return;
   }
 
-  const header = document.createElement("div");
-  header.className = "section-note panel";
-  header.innerHTML = favOnly
-    ? `<strong>Favourites first.</strong> Starred clubs float to the top — ${escapeHtml(favorites.join(", "))}.`
-    : `<strong>Tip.</strong> Star clubs in Favourites to prioritise their fixtures and alerts.`;
+  const byLeague = new Map();
+  for (const match of list) {
+    if (!byLeague.has(match.league)) byLeague.set(match.league, []);
+    byLeague.get(match.league).push(match);
+  }
 
-  const cards = ordered.map((match) => {
-    const card = document.createElement("article");
-    card.className = `match${isFavoriteMatch(match) ? " is-fav" : ""}`;
-    card.innerHTML = `
-      <div class="meta">
-        <span>${escapeHtml(match.kickoff)}${isFavoriteMatch(match) ? " · ★" : ""}</span>
-        <span class="status ${statusClass(match.status)}">${escapeHtml(match.status)}</span>
-      </div>
-      <div class="teams">
-        <div class="team">${escapeHtml(match.home)}</div>
-        <div class="score">
-          <button type="button" data-action="down" data-side="home" aria-label="Decrease ${escapeHtml(match.home)} score">−</button>
-          <span>${match.homeScore ?? "–"}</span>
-          <button type="button" data-action="up" data-side="home" aria-label="Increase ${escapeHtml(match.home)} score">+</button>
-          <span class="sep">:</span>
-          <button type="button" data-action="down" data-side="away" aria-label="Decrease ${escapeHtml(match.away)} score">−</button>
-          <span>${match.awayScore ?? "–"}</span>
-          <button type="button" data-action="up" data-side="away" aria-label="Increase ${escapeHtml(match.away)} score">+</button>
+  const frag = document.createDocumentFragment();
+  for (const [leagueId, matches] of byLeague) {
+    const league = DATA.leagueById[leagueId];
+    const title = document.createElement("p");
+    title.className = "group-title";
+    title.textContent = league?.name || leagueId;
+    const group = document.createElement("div");
+    group.className = "group";
+    matches.forEach((match) => {
+      const row = document.createElement("article");
+      row.className = "match-row";
+      const scoreHome = match.status === "Upcoming" ? "–" : match.homeScore;
+      const scoreAway = match.status === "Upcoming" ? "–" : match.awayScore;
+      const clock =
+        match.status === "Live" ? `${match.minute}'` : match.status === "Upcoming" ? match.kickoff : "FT";
+      row.innerHTML = `
+        <div class="match-meta">
+          <span>${isFavName(match.home) || isFavName(match.away) ? "★ " : ""}${escapeHtml(clock)}</span>
+          <span class="status ${statusClass(match.status)}">${escapeHtml(match.status)}</span>
         </div>
-        <div class="team away">${escapeHtml(match.away)}</div>
-      </div>
-      <div class="actions">
-        ${match.status !== "Live" ? `<button type="button" class="btn small ghost" data-status="Live">Mark live</button>` : ""}
-        ${match.status !== "FT" ? `<button type="button" class="btn small ghost" data-status="FT">Full time</button>` : ""}
-        ${match.status !== "Upcoming" ? `<button type="button" class="btn small ghost" data-status="Upcoming">Reset</button>` : ""}
-        <button type="button" class="btn small danger" data-remove>Remove</button>
-      </div>
-    `;
-
-    card.querySelectorAll(".score button").forEach((button) => {
-      button.addEventListener("click", () => {
-        changeScore(match.id, button.dataset.side, button.dataset.action === "up" ? 1 : -1);
-      });
+        <div class="match-teams">
+          <div class="club-line">${crest(match.home)}<span>${escapeHtml(match.home)}</span></div>
+          <div class="club-line">${crest(match.away)}<span>${escapeHtml(match.away)}</span></div>
+        </div>
+        <div class="score-stack">
+          <span>${scoreHome}</span>
+          <span>${scoreAway}</span>
+        </div>
+      `;
+      group.appendChild(row);
     });
-    card.querySelectorAll("[data-status]").forEach((button) => {
-      button.addEventListener("click", () => setStatus(match.id, button.dataset.status));
-    });
-    card.querySelector("[data-remove]").addEventListener("click", () => removeMatch(match.id));
-    return card;
-  });
-
-  els.matches.replaceChildren(header, ...cards);
+    frag.append(title, group);
+  }
+  els.matchesList.replaceChildren(frag);
 }
 
-function likelihoodClass(value) {
-  const v = String(value || "").toLowerCase();
-  if (v.includes("hot") || v.includes("done")) return "hot";
-  if (v.includes("rising") || v.includes("warm")) return "warm";
+function transferStatusClass(status) {
+  const s = String(status || "").toLowerCase();
+  if (s.includes("hot")) return "hot";
+  if (s.includes("completed")) return "warm";
   return "cold";
 }
 
 function renderTransfers() {
-  const list = [...DATA.transfers].sort((a, b) => {
-    const score = (t) => {
-      let s = 0;
-      if (favorites.includes(t.from) || favorites.includes(t.to)) s += 10;
-      if (t.likelihood === "Hot" || t.likelihood === "Done-ish") s += 5;
-      if (t.likelihood === "Rising" || t.likelihood === "Warm") s += 3;
-      return s;
-    };
-    return score(b) - score(a);
-  });
+  const list = [...DATA.transfers];
+  const done = list.filter((t) => t.status === "Completed");
+  const hot = list.filter((t) => t.status !== "Completed");
 
-  const note = document.createElement("div");
-  note.className = "section-note panel";
-  note.innerHTML =
-    "<strong>Big moves incoming.</strong> Hot deals and club links for your favourites rise to the top.";
+  const frag = document.createDocumentFragment();
 
-  const cards = list.map((t) => {
-    const related = favorites.includes(t.from) || favorites.includes(t.to);
-    const card = document.createElement("article");
-    card.className = `intel-card${related ? " is-fav" : ""}`;
-    card.innerHTML = `
-      <div class="intel-top">
+  const makeGroup = (label, items) => {
+    if (!items.length) return;
+    const title = document.createElement("p");
+    title.className = "group-title";
+    title.textContent = label;
+    const group = document.createElement("div");
+    group.className = "group";
+    items.forEach((t) => {
+      const related = isFavName(t.from) || isFavName(t.to);
+      const row = document.createElement("article");
+      row.className = "intel-row";
+      row.innerHTML = `
         <div>
           <p class="intel-title">${escapeHtml(t.player)}</p>
           <p class="intel-sub">${escapeHtml(t.from)} → ${escapeHtml(t.to)}</p>
+          <p class="intel-note">${escapeHtml(t.fee)} · ${escapeHtml(t.window)}${related ? " · Following" : ""}</p>
+          <p class="intel-note">${escapeHtml(t.note)}</p>
         </div>
-        <span class="pill ${likelihoodClass(t.likelihood)}">${escapeHtml(t.likelihood)}</span>
-      </div>
-      <p class="intel-meta">${escapeHtml(t.fee)} · ${escapeHtml(t.window)}${related ? " · ★ your club" : ""}</p>
-      <p class="intel-note">${escapeHtml(t.note)}</p>
-    `;
-    return card;
-  });
+        <span class="pill ${transferStatusClass(t.status)}">${escapeHtml(t.status)}</span>
+      `;
+      group.appendChild(row);
+    });
+    frag.append(title, group);
+  };
 
-  els.transfers.replaceChildren(note, ...cards);
+  makeGroup("This season — completed", done);
+  makeGroup("Still cooking", hot);
+  els.transfersList.replaceChildren(frag);
 }
 
-function renderMarket() {
-  const sorted = [...DATA.market].sort((a, b) => {
-    const num = (v) => Number(String(v).replace(/[^\d]/g, "")) || 0;
-    return num(b.value) - num(a.value);
-  });
+function renderTeams() {
+  updateNav();
 
-  const note = document.createElement("div");
-  note.className = "section-note panel";
-  note.innerHTML =
-    "<strong>Player market.</strong> Estimated valuations and momentum — useful when a rumour heats up.";
+  if (selectedTeamId) {
+    renderTeamDetail(selectedTeamId);
+    return;
+  }
 
-  const cards = sorted.map((p) => {
-    const related = favorites.includes(p.club);
-    const card = document.createElement("article");
-    card.className = `intel-card${related ? " is-fav" : ""}`;
-    card.innerHTML = `
-      <div class="intel-top">
+  if (teamsLeagueId) {
+    const league = DATA.leagueById[teamsLeagueId];
+    const teams = DATA.teams.filter((t) => t.league === teamsLeagueId);
+    const title = document.createElement("p");
+    title.className = "group-title";
+    title.textContent = league?.name || "Clubs";
+    const group = document.createElement("div");
+    group.className = "group";
+    teams.forEach((team) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "team-row";
+      btn.innerHTML = `
+        ${crest(team.name)}
         <div>
-          <p class="intel-title">${escapeHtml(p.player)}</p>
-          <p class="intel-sub">${escapeHtml(p.club)} · ${escapeHtml(p.pos)} · ${p.age} yrs</p>
+          <div class="team-name">${escapeHtml(team.name)}${isFavName(team.name) ? " ★" : ""}</div>
+          <div class="team-meta">${escapeHtml(team.stadium)}</div>
         </div>
-        <span class="pill value">${escapeHtml(p.value)}</span>
+        <span class="chev">›</span>
+      `;
+      btn.addEventListener("click", () => {
+        selectedTeamId = team.id;
+        renderTeams();
+      });
+      group.appendChild(btn);
+    });
+    if (!teams.length) {
+      group.innerHTML = `<div class="empty">Club pages for Champions League live under each domestic league.</div>`;
+    }
+    els.teamsList.replaceChildren(title, group);
+    return;
+  }
+
+  const title = document.createElement("p");
+  title.className = "group-title";
+  title.textContent = "Top flight Europe";
+  const group = document.createElement("div");
+  group.className = "group";
+  DATA.leagues
+    .filter((l) => l.id !== "ucl")
+    .forEach((league) => {
+      const count = DATA.teams.filter((t) => t.league === league.id).length;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "team-row";
+      btn.innerHTML = `
+        <span class="crest league-crest">${escapeHtml(league.flag)}</span>
+        <div>
+          <div class="team-name">${escapeHtml(league.name)}</div>
+          <div class="team-meta">${count} clubs · ${escapeHtml(league.country)}</div>
+        </div>
+        <span class="chev">›</span>
+      `;
+      btn.addEventListener("click", () => {
+        teamsLeagueId = league.id;
+        selectedTeamId = null;
+        renderTeams();
+      });
+      group.appendChild(btn);
+    });
+  els.teamsList.replaceChildren(title, group);
+}
+
+function renderTeamDetail(teamId) {
+  const team = DATA.teams.find((t) => t.id === teamId);
+  if (!team) return;
+  updateNav();
+
+  const header = document.createElement("div");
+  header.className = "group";
+  header.innerHTML = `
+    <div class="fav-row">
+      ${crest(team.name)}
+      <div>
+        <div class="team-name">${escapeHtml(team.name)}</div>
+        <div class="team-meta">${escapeHtml(DATA.leagueById[team.league]?.name || "")} · Est. ${team.founded}</div>
       </div>
-      <p class="intel-meta">Trend: <span class="trend ${escapeHtml(p.trend)}">${escapeHtml(p.trend)}</span>${related ? " · ★" : ""}</p>
-      <p class="intel-note">${escapeHtml(p.note)}</p>
+      <button type="button" class="star-btn ${isFavName(team.name) ? "" : "is-off"}" data-star>${isFavName(team.name) ? "★" : "☆"}</button>
+    </div>
+    <div class="intel-row">
+      <div>
+        <p class="intel-note"><strong>Manager</strong> · ${escapeHtml(team.manager)}</p>
+        <p class="intel-note"><strong>Stadium</strong> · ${escapeHtml(team.stadium)}</p>
+        <p class="intel-note">${escapeHtml(team.about)}</p>
+      </div>
+    </div>
+  `;
+  header.querySelector("[data-star]").addEventListener("click", () => toggleFavorite(team.name));
+
+  const formTitle = document.createElement("p");
+  formTitle.className = "group-title";
+  formTitle.textContent = "Form";
+  const formGroup = document.createElement("div");
+  formGroup.className = "group";
+  formGroup.innerHTML = `
+    <div class="form-row">${(team.form || [])
+      .map((r) => `<span class="form-pill ${r.toLowerCase()}">${escapeHtml(r)}</span>`)
+      .join("")}</div>
+  `;
+
+  const lastTitle = document.createElement("p");
+  lastTitle.className = "group-title";
+  lastTitle.textContent = "Last five";
+  const lastGroup = document.createElement("div");
+  lastGroup.className = "group";
+  (team.lastFive || []).forEach((g) => {
+    const row = document.createElement("div");
+    row.className = "intel-row";
+    row.innerHTML = `
+      <div>
+        <p class="intel-title">${g.home ? "vs" : "@"} ${escapeHtml(g.opp)}</p>
+        <p class="intel-sub">${escapeHtml(g.score)}</p>
+      </div>
+      <span class="form-pill ${g.result.toLowerCase()}">${escapeHtml(g.result)}</span>
     `;
-    return card;
+    lastGroup.appendChild(row);
   });
 
-  els.market.replaceChildren(note, ...cards);
+  const xiTitle = document.createElement("p");
+  xiTitle.className = "group-title";
+  xiTitle.textContent = `Lineup · ${team.lineup?.formation || ""}`;
+  const xiGroup = document.createElement("div");
+  xiGroup.className = "group";
+  (team.lineup?.xi || []).forEach((player, i) => {
+    const row = document.createElement("div");
+    row.className = "setting-row";
+    row.innerHTML = `<strong>${i + 1}. ${escapeHtml(player)}</strong>`;
+    xiGroup.appendChild(row);
+  });
+  if (team.lineup?.bench?.length) {
+    const bench = document.createElement("div");
+    bench.className = "intel-row";
+    bench.innerHTML = `<p class="intel-note"><strong>Bench</strong> · ${escapeHtml(team.lineup.bench.join(", "))}</p>`;
+    xiGroup.appendChild(bench);
+  }
+
+  els.teamsList.replaceChildren(header, formTitle, formGroup, lastTitle, lastGroup, xiTitle, xiGroup);
 }
 
 function renderFavourites() {
-  const wrap = document.createElement("div");
-  wrap.className = "panel fav-panel";
-  wrap.innerHTML = `
-    <p class="form-title">Favourite teams</p>
-    <p class="ask-hint">Star clubs to prioritise fixtures, transfers, market names, and notifications.</p>
-    <div class="fav-grid"></div>
-  `;
-  const grid = wrap.querySelector(".fav-grid");
-  DATA.clubs.forEach((club) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `fav-chip${favorites.includes(club) ? " is-on" : ""}`;
-    btn.setAttribute("aria-pressed", favorites.includes(club) ? "true" : "false");
-    btn.textContent = `${favorites.includes(club) ? "★" : "☆"} ${club}`;
-    btn.addEventListener("click", () => toggleFavorite(club));
-    grid.appendChild(btn);
-  });
-  els.favourites.replaceChildren(wrap);
-}
+  const title = document.createElement("p");
+  title.className = "group-title";
+  title.textContent = "Your clubs";
 
-function permissionLabel() {
-  if (!("Notification" in window)) return "Not supported in this browser";
-  return Notification.permission;
-}
-
-async function enableAlerts() {
-  if (!("Notification" in window)) {
-    alertSettings.enabled = false;
-    persist();
-    renderAlerts();
+  if (!favorites.length) {
+    els.favouritesList.innerHTML = `<div class="group"><div class="empty">Star teams from the Teams tab to track form here.</div></div>`;
     return;
   }
-  const permission = await Notification.requestPermission();
-  alertSettings.enabled = permission === "granted";
-  persist();
-  renderAlerts();
-  if (alertSettings.enabled) {
-    notifyNow("NINETY alerts on", "You'll get pings for favourite fixtures and hot transfers.");
-    scheduleMatchChecks();
-    maybeNotifyTransfers();
-  }
-}
 
-function notifyNow(title, body, tag) {
-  if (!alertSettings.enabled || !("Notification" in window) || Notification.permission !== "granted") {
-    return;
-  }
-  try {
-    new Notification(title, { body, tag: tag || undefined });
-  } catch {
-    /* ignore unsupported options */
-  }
-}
+  const frag = document.createDocumentFragment();
+  frag.appendChild(title);
 
-function scheduleMatchChecks() {
-  if (!alertSettings.enabled || !alertSettings.matchReminders) return;
-  const lead = (alertSettings.minutesBefore || 60) * 60 * 1000;
-  const now = Date.now();
+  favorites.forEach((name) => {
+    const team = DATA.teamByName[name] || DATA.teams.find((t) => t.name === name);
+    const group = document.createElement("div");
+    group.className = "group fav-card";
 
-  for (const match of matches) {
-    if (match.status !== "Upcoming" || !match.kickoffAt) continue;
-    if (!isFavoriteMatch(match)) continue;
-    const start = Date.parse(match.kickoffAt);
-    if (Number.isNaN(start)) continue;
-    const notifyAt = start - lead;
-    const key = `match:${match.id}`;
-    if (notified[key]) continue;
-    if (notifyAt <= now && start > now) {
-      notified[key] = Date.now();
-      persist();
-      notifyNow(
-        `${match.home} vs ${match.away}`,
-        `Kickoff ${match.kickoff} — your favourite is involved.`,
-        key
-      );
-    }
-  }
-}
-
-function maybeNotifyTransfers() {
-  if (!alertSettings.enabled || !alertSettings.transferAlerts) return;
-  const hot = DATA.transfers.filter((t) => {
-    const linked = favorites.includes(t.from) || favorites.includes(t.to);
-    const spicy = t.likelihood === "Hot" || t.likelihood === "Done-ish" || t.likelihood === "Rising";
-    return linked && spicy;
-  });
-
-  for (const t of hot) {
-    const key = `transfer:${t.id}:${favorites.join("|")}`;
-    if (watchedTransfers.includes(key)) continue;
-    watchedTransfers = [...watchedTransfers, key];
-    persist();
-    notifyNow(
-      `Transfer watch: ${t.player}`,
-      `${t.from} → ${t.to} · ${t.fee} (${t.likelihood})`,
-      key
-    );
-  }
-}
-
-function renderAlerts() {
-  const panel = document.createElement("div");
-  panel.className = "panel form alerts-panel";
-  panel.innerHTML = `
-    <p class="form-title">Match & transfer alerts</p>
-    <p class="ask-hint">Browser notifications for favourite kickoffs and big moves linked to your clubs.</p>
-    <div class="alert-status">
-      <span>Permission: <strong>${escapeHtml(permissionLabel())}</strong></span>
-      <span>Status: <strong>${alertSettings.enabled ? "On" : "Off"}</strong></span>
-    </div>
-    <label class="check">
-      <input type="checkbox" id="alert-matches" ${alertSettings.matchReminders ? "checked" : ""} />
-      Remind me before favourite matches
-    </label>
-    <label class="check">
-      <input type="checkbox" id="alert-transfers" ${alertSettings.transferAlerts ? "checked" : ""} />
-      Ping hot transfers for my clubs
-    </label>
-    <label>
-      Minutes before kickoff
-      <input type="number" id="alert-mins" min="5" max="180" step="5" value="${Number(alertSettings.minutesBefore) || 60}" />
-    </label>
-    <button type="button" class="btn primary wide" id="alert-enable">${alertSettings.enabled ? "Refresh permission" : "Turn on notifications"}</button>
-    <button type="button" class="btn ghost wide" id="alert-test">Send test notification</button>
-  `;
-
-  panel.querySelector("#alert-enable").addEventListener("click", () => enableAlerts());
-  panel.querySelector("#alert-test").addEventListener("click", () => {
-    if (!alertSettings.enabled) {
-      enableAlerts().then(() => notifyNow("NINETY test", "If you can read this, alerts are working."));
+    if (!team) {
+      group.innerHTML = `
+        <div class="fav-row">
+          ${crest(name)}
+          <div class="team-name">${escapeHtml(name)}</div>
+          <button type="button" class="star-btn" data-unfav>★</button>
+        </div>`;
+      group.querySelector("[data-unfav]").addEventListener("click", () => toggleFavorite(name));
+      frag.appendChild(group);
       return;
     }
-    notifyNow("NINETY test", "If you can read this, alerts are working.");
+
+    group.innerHTML = `
+      <div class="fav-row">
+        ${crest(team.name)}
+        <div>
+          <div class="team-name">${escapeHtml(team.name)}</div>
+          <div class="team-meta">${escapeHtml(DATA.leagueById[team.league]?.name || "")}</div>
+        </div>
+        <button type="button" class="star-btn" data-unfav>★</button>
+      </div>
+      <div class="form-row pad">${(team.form || [])
+        .map((r) => `<span class="form-pill ${r.toLowerCase()}">${escapeHtml(r)}</span>`)
+        .join("")}</div>
+    `;
+    group.querySelector("[data-unfav]").addEventListener("click", () => toggleFavorite(team.name));
+
+    (team.lastFive || []).forEach((g) => {
+      const row = document.createElement("div");
+      row.className = "intel-row";
+      row.innerHTML = `
+        <div>
+          <p class="intel-title">${g.home ? "vs" : "@"} ${escapeHtml(g.opp)}</p>
+          <p class="intel-sub">${escapeHtml(g.score)}</p>
+        </div>
+        <span class="form-pill ${g.result.toLowerCase()}">${escapeHtml(g.result)}</span>
+      `;
+      group.appendChild(row);
+    });
+
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "mini-btn block-btn";
+    open.textContent = "Open club page";
+    open.addEventListener("click", () => {
+      showView("teams");
+      teamsLeagueId = team.league;
+      selectedTeamId = team.id;
+      renderTeams();
+    });
+    group.appendChild(open);
+    frag.appendChild(group);
   });
-  panel.querySelector("#alert-matches").addEventListener("change", (e) => {
+
+  const alertTitle = document.createElement("p");
+  alertTitle.className = "group-title";
+  alertTitle.textContent = "Alerts";
+  const alertGroup = document.createElement("div");
+  alertGroup.className = "group";
+  alertGroup.innerHTML = `
+    <div class="setting-row">
+      <label><strong>Match reminders</strong><span>Favourite kickoffs</span></label>
+      <label class="switch"><input type="checkbox" id="alert-matches" ${alertSettings.matchReminders ? "checked" : ""} /><span></span></label>
+    </div>
+    <div class="setting-row">
+      <label><strong>Transfer pings</strong><span>Big Europe moves</span></label>
+      <label class="switch"><input type="checkbox" id="alert-transfers" ${alertSettings.transferAlerts ? "checked" : ""} /><span></span></label>
+    </div>
+  `;
+  const enable = document.createElement("button");
+  enable.type = "button";
+  enable.className = "primary-action";
+  enable.textContent = alertSettings.enabled ? "Notifications on" : "Turn on notifications";
+  enable.addEventListener("click", async () => {
+    if (!("Notification" in window)) return;
+    const permission = await Notification.requestPermission();
+    alertSettings.enabled = permission === "granted";
+    persist();
+    if (alertSettings.enabled) new Notification("NINETY", { body: "Alerts ready for your favourites." });
+    renderFavourites();
+  });
+  alertGroup.querySelector("#alert-matches").addEventListener("change", (e) => {
     alertSettings.matchReminders = e.target.checked;
     persist();
   });
-  panel.querySelector("#alert-transfers").addEventListener("change", (e) => {
+  alertGroup.querySelector("#alert-transfers").addEventListener("change", (e) => {
     alertSettings.transferAlerts = e.target.checked;
     persist();
-    if (e.target.checked) maybeNotifyTransfers();
-  });
-  panel.querySelector("#alert-mins").addEventListener("change", (e) => {
-    alertSettings.minutesBefore = Math.max(5, Math.min(180, Number(e.target.value) || 60));
-    persist();
   });
 
-  const upcoming = matches.filter((m) => m.status === "Upcoming" && isFavoriteMatch(m));
-  const preview = document.createElement("div");
-  preview.className = "panel";
-  preview.innerHTML = upcoming.length
-    ? `<p class="form-title">Next pings</p><ul class="plain-list">${upcoming
-        .map(
-          (m) =>
-            `<li>${escapeHtml(m.home)} vs ${escapeHtml(m.away)} · ${escapeHtml(m.kickoff)}</li>`
-        )
-        .join("")}</ul>`
-    : `<p class="ask-hint">No upcoming favourite fixtures queued. Star clubs or add a kickoff time on Add.</p>`;
-
-  els.alerts.replaceChildren(panel, preview);
-}
-
-function emptyPanel(text) {
-  const el = document.createElement("div");
-  el.className = "panel empty";
-  el.textContent = text;
-  return el;
-}
-
-function renderTable() {
-  const rows = standings();
-  const wrap = document.createElement("div");
-  wrap.className = "panel table-wrap";
-  if (!rows.length) {
-    wrap.classList.add("empty");
-    wrap.textContent = "Add a result and the table will appear here.";
-    els.table.replaceChildren(wrap);
-    return;
-  }
-  wrap.innerHTML = `
-    <table>
-      <thead>
-        <tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GD</th><th>Pts</th></tr>
-      </thead>
-      <tbody>
-        ${rows
-          .map(
-            (row, index) => `
-              <tr class="${index < 3 ? "podium" : ""}">
-                <td>${index + 1}</td>
-                <td>${escapeHtml(row.team)}${favorites.includes(row.team) ? " ★" : ""}</td>
-                <td>${row.played}</td>
-                <td>${row.won}</td>
-                <td>${row.drawn}</td>
-                <td>${row.lost}</td>
-                <td>${row.gf - row.ga}</td>
-                <td>${row.points}</td>
-              </tr>
-            `
-          )
-          .join("")}
-      </tbody>
-    </table>
-  `;
-  els.table.replaceChildren(wrap);
+  frag.append(alertTitle, alertGroup, enable);
+  els.favouritesList.replaceChildren(frag);
 }
 
 function appendAsk(role, text, source) {
@@ -556,65 +523,43 @@ function ask(question) {
   const q = String(question || "").trim();
   if (!q) return;
   appendAsk("user", q);
-  const result = AI.answerQuestion(q, {
-    favorites,
-    matches,
-    standings,
-  });
+  const result = AI.answerQuestion(q, { favorites });
   appendAsk("ai", result.text, result.source);
 }
 
-function renderClubList() {
-  els.clubList.innerHTML = DATA.clubs.map((c) => `<option value="${escapeHtml(c)}"></option>`).join("");
+function renderDate() {
+  els.navDate.textContent = new Intl.DateTimeFormat("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "short",
+    timeZone: "Europe/London",
+  }).format(new Date());
 }
 
 function render() {
-  renderMatches();
-  renderTransfers();
-  renderMarket();
-  renderFavourites();
-  renderAlerts();
-  renderTable();
+  if (currentView === "matches") {
+    renderMatchLeagueSeg();
+    renderMatches();
+  }
+  if (currentView === "transfers") renderTransfers();
+  if (currentView === "teams") renderTeams();
+  if (currentView === "favourites") renderFavourites();
 }
 
-document.querySelectorAll(".tab").forEach((tab) => {
+document.querySelectorAll(".tab-bar .tab").forEach((tab) => {
   tab.addEventListener("click", () => showView(tab.dataset.view));
 });
 
-document.querySelectorAll("[data-jump]").forEach((button) => {
-  button.addEventListener("click", () => {
-    showView(button.dataset.jump);
-    document.querySelector("#board")?.scrollIntoView({ behavior: "smooth" });
-  });
-});
-
-els.form.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const data = new FormData(els.form);
-  const home = String(data.get("home") || "").trim();
-  const away = String(data.get("away") || "").trim();
-  const kickoff = String(data.get("kickoff") || "").trim();
-  const kickoffAtRaw = String(data.get("kickoffAt") || "").trim();
-  if (!home || !away || !kickoff) return;
-
-  matches = [
-    {
-      id: crypto.randomUUID(),
-      home,
-      away,
-      kickoff,
-      kickoffAt: kickoffAtRaw ? new Date(kickoffAtRaw).toISOString() : new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-      homeScore: null,
-      awayScore: null,
-      status: "Upcoming",
-    },
-    ...matches,
-  ];
-  els.form.reset();
-  persist();
-  showView("matches");
-  render();
-  scheduleMatchChecks();
+els.navBack.addEventListener("click", () => {
+  if (selectedTeamId) {
+    selectedTeamId = null;
+    renderTeams();
+    return;
+  }
+  if (teamsLeagueId) {
+    teamsLeagueId = null;
+    renderTeams();
+  }
 });
 
 els.askForm.addEventListener("submit", (event) => {
@@ -628,18 +573,13 @@ document.querySelectorAll("#ask-chips .chip").forEach((chip) => {
   chip.addEventListener("click", () => ask(chip.dataset.q));
 });
 
-renderClubList();
-render();
-scheduleMatchChecks();
+renderDate();
+showView("matches");
 
 if (!els.askLog.children.length) {
   appendAsk(
     "ai",
-    "Hey — ask me about big transfers, player valuations, your favourite fixtures, or football rules.",
+    "Ask me anything football — live scores, Europe transfers, lineups, or your favourites' form.",
     "NINETY AI"
   );
 }
-
-setInterval(() => {
-  scheduleMatchChecks();
-}, 30_000);
