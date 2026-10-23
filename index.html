@@ -3,7 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="NINETY — your matchday scoreboard and league table." />
+    <meta
+      name="description"
+      content="NINETY — favourites, transfer alerts, match pings, player market, and AI answers."
+    />
     <title>NINETY — Matchday</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -24,41 +27,82 @@
 
     <header class="hero">
       <p class="brand">NINETY</p>
-      <h1 class="headline">Every kick. Every score.</h1>
-      <p class="lede">Log matchday results, nudge live scores, and watch the table move.</p>
+      <h1 class="headline">Your clubs. Your alerts.</h1>
+      <p class="lede">
+        Favourite teams, big-transfer radar, match notifications, player market — and an AI you can ask anything.
+      </p>
       <div class="cta-row">
         <a class="btn primary" href="#board">Open board</a>
-        <button type="button" class="btn ghost" data-jump="add">Add a fixture</button>
+        <button type="button" class="btn ghost" data-jump="ask">Ask AI</button>
       </div>
     </header>
 
     <div id="board" class="board">
       <nav class="tabs" aria-label="Sections">
         <button type="button" class="tab is-active" data-view="matches">Matches</button>
+        <button type="button" class="tab" data-view="transfers">Transfers</button>
+        <button type="button" class="tab" data-view="market">Market</button>
+        <button type="button" class="tab" data-view="favourites">Favourites</button>
+        <button type="button" class="tab" data-view="alerts">Alerts</button>
+        <button type="button" class="tab" data-view="ask">Ask AI</button>
         <button type="button" class="tab" data-view="table">Table</button>
         <button type="button" class="tab" data-view="add">Add</button>
       </nav>
 
       <main>
         <section id="matches" class="view is-visible" aria-label="Matches"></section>
+        <section id="transfers" class="view" aria-label="Transfers"></section>
+        <section id="market" class="view" aria-label="Player market"></section>
+        <section id="favourites" class="view" aria-label="Favourite teams"></section>
+        <section id="alerts" class="view" aria-label="Alerts"></section>
+        <section id="ask" class="view" aria-label="Ask AI">
+          <div class="panel ask-panel">
+            <p class="form-title">Ask NINETY AI</p>
+            <p class="ask-hint">Transfers, valuations, fixtures, rules — ask in plain English.</p>
+            <div id="ask-log" class="ask-log" aria-live="polite"></div>
+            <form id="ask-form" class="ask-form">
+              <label class="sr-only" for="ask-input">Your question</label>
+              <input
+                id="ask-input"
+                name="q"
+                required
+                maxlength="240"
+                placeholder="e.g. Biggest transfers for Arsenal?"
+                autocomplete="off"
+              />
+              <button type="submit" class="btn primary">Ask</button>
+            </form>
+            <div class="chip-row" id="ask-chips">
+              <button type="button" class="chip" data-q="What are the biggest transfers right now?">Big transfers</button>
+              <button type="button" class="chip" data-q="Who is rising on the player market?">Market risers</button>
+              <button type="button" class="chip" data-q="When do my favourites play?">My fixtures</button>
+              <button type="button" class="chip" data-q="What is Bukayo Saka worth?">Saka value</button>
+            </div>
+          </div>
+        </section>
         <section id="table" class="view" aria-label="Table"></section>
         <section id="add" class="view" aria-label="Add a match">
           <form id="match-form" class="form panel">
             <p class="form-title">New fixture</p>
             <label>
               Home team
-              <input name="home" required maxlength="40" placeholder="Arsenal" autocomplete="off" />
+              <input name="home" required maxlength="40" placeholder="Arsenal" list="club-list" autocomplete="off" />
             </label>
             <label>
               Away team
-              <input name="away" required maxlength="40" placeholder="Chelsea" autocomplete="off" />
+              <input name="away" required maxlength="40" placeholder="Chelsea" list="club-list" autocomplete="off" />
             </label>
             <label>
-              Kickoff
+              Kickoff label
               <input name="kickoff" required maxlength="24" placeholder="Sat 15:00" autocomplete="off" />
+            </label>
+            <label>
+              Notify at (optional)
+              <input name="kickoffAt" type="datetime-local" />
             </label>
             <button type="submit" class="btn primary wide">Add match</button>
           </form>
+          <datalist id="club-list"></datalist>
         </section>
       </main>
     </div>
@@ -68,6 +112,8 @@
       <span>Saved on this device</span>
     </footer>
 
+    <script src="data.js"></script>
+    <script src="ai.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
