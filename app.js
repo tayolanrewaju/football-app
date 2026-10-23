@@ -69,8 +69,9 @@ function persist() {
   saveJson(KEYS.alerts, alertSettings);
 }
 
-function crest(teamName) {
+function crest(teamName, sizeClass = "") {
   const team = DATA.teamByName[teamName] || DATA.teams.find((t) => t.name === teamName);
+  const logo = DATA.logoFor(teamName) || team?.logo;
   const color = team?.color || "#8e8e93";
   const initials = (team?.short || teamName)
     .split(/\s+/)
@@ -78,7 +79,20 @@ function crest(teamName) {
     .join("")
     .slice(0, 3)
     .toUpperCase();
-  return `<span class="crest" style="background:${color}">${escapeHtml(initials.slice(0, 3))}</span>`;
+  const cls = `crest${sizeClass ? ` ${sizeClass}` : ""}`;
+  if (logo) {
+    return `<span class="${cls} crest-img" style="--crest-fallback:${color}"><img src="${escapeHtml(logo)}" alt="" loading="lazy" decoding="async" onerror="this.parentElement.classList.add('is-fallback');this.remove();" /><span class="crest-fallback">${escapeHtml(initials.slice(0, 3))}</span></span>`;
+  }
+  return `<span class="${cls}" style="background:${color}">${escapeHtml(initials.slice(0, 3))}</span>`;
+}
+
+function leagueLogo(league, sizeClass = "") {
+  if (!league) return "";
+  const cls = `crest crest-league${sizeClass ? ` ${sizeClass}` : ""}`;
+  if (league.logo) {
+    return `<span class="${cls} crest-img"><img src="${escapeHtml(league.logo)}" alt="" loading="lazy" decoding="async" onerror="this.parentElement.classList.add('is-fallback');this.remove();" /><span class="crest-fallback">${escapeHtml(league.flag || "?")}</span></span>`;
+  }
+  return `<span class="${cls} league-crest">${escapeHtml(league.flag || "?")}</span>`;
 }
 
 function statusClass(status) {
@@ -108,7 +122,14 @@ function showView(name) {
     tab.classList.toggle("is-active", tab.dataset.view === name);
   });
   document.querySelectorAll(".screen").forEach((screen) => {
-    screen.classList.toggle("is-active", screen.id === name);
+    const on = screen.id === name;
+    if (on && !screen.classList.contains("is-active")) {
+      screen.classList.add("is-entering");
+      requestAnimationFrame(() => {
+        screen.classList.remove("is-entering");
+      });
+    }
+    screen.classList.toggle("is-active", on);
   });
   updateNav();
   render();
@@ -127,11 +148,16 @@ function updateNav() {
 }
 
 function renderMatchLeagueSeg() {
-  const items = [{ id: "all", name: "All" }, { id: "live", name: "Live" }, { id: "fav", name: "Following" }, ...DATA.leagues];
+  const items = [
+    { id: "all", name: "All", logoHtml: "" },
+    { id: "live", name: "Live", logoHtml: `<span class="live-dot"></span>` },
+    { id: "fav", name: "Following", logoHtml: "" },
+    ...DATA.leagues.map((l) => ({ ...l, logoHtml: leagueLogo(l, "crest-xs") })),
+  ];
   els.matchLeagues.innerHTML = items
     .map(
       (l) =>
-        `<button type="button" class="seg-btn${matchLeague === l.id ? " is-on" : ""}" data-league="${l.id}">${escapeHtml(l.name)}</button>`
+        `<button type="button" class="seg-btn${matchLeague === l.id ? " is-on" : ""}" data-league="${l.id}">${l.logoHtml || ""}<span>${escapeHtml(l.name)}</span></button>`
     )
     .join("");
   els.matchLeagues.querySelectorAll("[data-league]").forEach((btn) => {
@@ -172,21 +198,21 @@ function renderMatches() {
   for (const [leagueId, matches] of byLeague) {
     const league = DATA.leagueById[leagueId];
     const title = document.createElement("p");
-    title.className = "group-title";
-    title.textContent = league?.name || leagueId;
+    title.className = "group-title league-heading";
+    title.innerHTML = `${leagueLogo(league, "crest-xs")}<span>${escapeHtml(league?.name || leagueId)}</span>`;
     const group = document.createElement("div");
     group.className = "group";
     matches.forEach((match) => {
       const row = document.createElement("article");
-      row.className = "match-row";
+      row.className = `match-row${match.status === "Live" ? " is-live" : ""}`;
       const scoreHome = match.status === "Upcoming" ? "–" : match.homeScore;
       const scoreAway = match.status === "Upcoming" ? "–" : match.awayScore;
       const clock =
         match.status === "Live" ? `${match.minute}'` : match.status === "Upcoming" ? match.kickoff : "FT";
       row.innerHTML = `
         <div class="match-meta">
-          <span>${isFavName(match.home) || isFavName(match.away) ? "★ " : ""}${escapeHtml(clock)}</span>
-          <span class="status ${statusClass(match.status)}">${escapeHtml(match.status)}</span>
+          <span class="status ${statusClass(match.status)}">${match.status === "Live" ? `<span class="live-dot"></span>${escapeHtml(clock)}` : escapeHtml(match.status === "Upcoming" ? clock : "FT")}</span>
+          <span>${isFavName(match.home) || isFavName(match.away) ? "★ Following" : ""}</span>
         </div>
         <div class="match-teams">
           <div class="club-line">${crest(match.home)}<span>${escapeHtml(match.home)}</span></div>
@@ -228,8 +254,9 @@ function renderTransfers() {
     items.forEach((t) => {
       const related = isFavName(t.from) || isFavName(t.to);
       const row = document.createElement("article");
-      row.className = "intel-row";
+      row.className = "intel-row transfer-row";
       row.innerHTML = `
+        <div class="transfer-clubs">${crest(t.from, "crest-sm")}<span class="transfer-arrow">→</span>${crest(t.to, "crest-sm")}</div>
         <div>
           <p class="intel-title">${escapeHtml(t.player)}</p>
           <p class="intel-sub">${escapeHtml(t.from)} → ${escapeHtml(t.to)}</p>
@@ -260,8 +287,8 @@ function renderTeams() {
     const league = DATA.leagueById[teamsLeagueId];
     const teams = DATA.teams.filter((t) => t.league === teamsLeagueId);
     const title = document.createElement("p");
-    title.className = "group-title";
-    title.textContent = league?.name || "Clubs";
+    title.className = "group-title league-heading";
+    title.innerHTML = `${leagueLogo(league, "crest-xs")}<span>${escapeHtml(league?.name || "Clubs")}</span>`;
     const group = document.createElement("div");
     group.className = "group";
     teams.forEach((team) => {
@@ -302,7 +329,7 @@ function renderTeams() {
       btn.type = "button";
       btn.className = "team-row";
       btn.innerHTML = `
-        <span class="crest league-crest">${escapeHtml(league.flag)}</span>
+        ${leagueLogo(league)}
         <div>
           <div class="team-name">${escapeHtml(league.name)}</div>
           <div class="team-meta">${count} clubs · ${escapeHtml(league.country)}</div>
@@ -547,7 +574,13 @@ function render() {
 }
 
 document.querySelectorAll(".tab-bar .tab").forEach((tab) => {
-  tab.addEventListener("click", () => showView(tab.dataset.view));
+  tab.addEventListener("click", () => {
+    if (tab.dataset.view === "teams") {
+      teamsLeagueId = null;
+      selectedTeamId = null;
+    }
+    showView(tab.dataset.view);
+  });
 });
 
 els.navBack.addEventListener("click", () => {

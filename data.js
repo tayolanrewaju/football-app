@@ -1,11 +1,11 @@
 window.NINETY_DATA = {
   leagues: [
-    { id: "pl", name: "Premier League", country: "England", flag: "ENG" },
-    { id: "ll", name: "La Liga", country: "Spain", flag: "ESP" },
-    { id: "sa", name: "Serie A", country: "Italy", flag: "ITA" },
-    { id: "bl", name: "Bundesliga", country: "Germany", flag: "GER" },
-    { id: "l1", name: "Ligue 1", country: "France", flag: "FRA" },
-    { id: "ucl", name: "Champions League", country: "Europe", flag: "UCL" },
+    { id: "pl", name: "Premier League", country: "England", flag: "ENG", logo: "https://crests.football-data.org/PL.png" },
+    { id: "ll", name: "La Liga", country: "Spain", flag: "ESP", logo: "https://crests.football-data.org/PD.png" },
+    { id: "sa", name: "Serie A", country: "Italy", flag: "ITA", logo: "https://crests.football-data.org/SA.png" },
+    { id: "bl", name: "Bundesliga", country: "Germany", flag: "GER", logo: "https://crests.football-data.org/BL1.png" },
+    { id: "l1", name: "Ligue 1", country: "France", flag: "FRA", logo: "https://crests.football-data.org/FL1.png" },
+    { id: "ucl", name: "Champions League", country: "Europe", flag: "UCL", logo: "https://crests.football-data.org/CL.png" },
   ],
 
   teams: [
@@ -302,7 +302,71 @@ window.NINETY_DATA = {
   ],
 };
 
+// Crest IDs from football-data.org
+window.NINETY_DATA.crestIds = {
+  Arsenal: 57,
+  Liverpool: 64,
+  "Man City": 65,
+  Chelsea: 61,
+  Tottenham: 73,
+  "Man United": 66,
+  Newcastle: 67,
+  "Aston Villa": 58,
+  Brighton: 397,
+  "West Ham": 563,
+  Fulham: 63,
+  Bournemouth: 1044,
+  "Crystal Palace": 354,
+  Everton: 62,
+  Wolves: 76,
+  "Nottingham Forest": 351,
+  "Real Madrid": 86,
+  Barcelona: 81,
+  "Atlético Madrid": 78,
+  Sevilla: 559,
+  "Real Sociedad": 92,
+  Villarreal: 94,
+  Athletic: 77,
+  Valencia: 95,
+  Inter: 108,
+  "AC Milan": 98,
+  Juventus: 109,
+  Napoli: 113,
+  Roma: 100,
+  Atalanta: 102,
+  Lazio: 110,
+  Fiorentina: 99,
+  "Bayern Munich": 5,
+  "Borussia Dortmund": 4,
+  "Bayer Leverkusen": 3,
+  "RB Leipzig": 721,
+  Frankfurt: 19,
+  Stuttgart: 10,
+  Wolfsburg: 11,
+  PSG: 524,
+  Marseille: 516,
+  Monaco: 548,
+  Lyon: 523,
+  Lille: 521,
+  Nice: 522,
+  Rennes: 529,
+  "Sporting CP": 498,
+  Palmeiras: 1769,
+};
+
+window.NINETY_DATA.teams.forEach((team) => {
+  const id = window.NINETY_DATA.crestIds[team.name];
+  if (id) team.logo = `https://crests.football-data.org/${id}.png`;
+});
+
 // Convenience indexes
 window.NINETY_DATA.clubs = window.NINETY_DATA.teams.map((t) => t.name);
 window.NINETY_DATA.teamByName = Object.fromEntries(window.NINETY_DATA.teams.map((t) => [t.name, t]));
 window.NINETY_DATA.leagueById = Object.fromEntries(window.NINETY_DATA.leagues.map((l) => [l.id, l]));
+
+window.NINETY_DATA.logoFor = function (name) {
+  const team = window.NINETY_DATA.teamByName[name];
+  if (team?.logo) return team.logo;
+  const id = window.NINETY_DATA.crestIds[name];
+  return id ? `https://crests.football-data.org/${id}.png` : null;
+};
