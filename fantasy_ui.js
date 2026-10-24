@@ -32,6 +32,9 @@
   let pointsStat = "points";
   let pickTab = "pitch";
   let pickStat = "fixture";
+  let transferTab = "pitch";
+  let transferStat = "fixture";
+  let transferFocus = false;
   let badgeBusy = false;
   let renderStamp = 0;
   let rulesLoaded = false;
@@ -687,53 +690,138 @@
 
   function pageTransfers() {
     const idea = GAME().suggest(state);
-    shell(`
-      <div class="group fantasy-head">
-        <div class="fantasy-bank"><strong>${state.freeTransfers}</strong><span>free transfers, banked up to 2</span></div>
-        <div class="fantasy-bank"><strong>-${GAME().hit(state)}</strong><span>points hit this week</span></div>
+    const stamp = deadlineStamp();
+    const when = stamp.deadline ? new Date(stamp.deadline) : new Date();
+    const hit = GAME().hit(state);
+    const left = CORE().BUDGET - GAME().spent(state);
+    const wildcardId = GAME().weekNumber(when) <= 19 ? "wildcard1" : "wildcard2";
+    const chips = [
+      [wildcardId, "Wildcard", "wildcard"],
+      ["freehit", "Free Hit", "freehit"],
+    ];
+    const caps = GAME().SQUAD;
+    const lines = ["G", "D", "M", "A"].map((slot) => {
+      const players = state.squad.filter((player) => player.slot === slot);
+      const cells = players.map((player) => shirtCard(player, { mode: transferStat, when, price: ctx.money(player.price), sell: true }));
+      const need = caps[slot] || 0;
+      while (cells.length < need) cells.push(`<button type="button" class="shirt-card is-empty" data-add aria-label="Add player"><span class="shirt-photo"></span><span class="shirt-name"></span><span class="shirt-sub"></span></button>`);
+      return `<div class="gw-line" data-line="${slot}">${cells.join("")}</div>`;
+    });
+    const crest = state.badgeImage
+      ? `<img src="${esc(state.badgeImage)}" alt="" />`
+      : `<span class="gw-crest-mark"></span>`;
+    const statName = transferStat === "price" ? "Price" : transferStat === "points" ? "Points" : "Opponent";
+    const opponentIcon = `<svg class="pick-opp" viewBox="0 0 20 16" aria-hidden="true"><rect x="0.5" y="3" width="11" height="12" rx="1.6" fill="#7c5cff"/><rect x="8" y="0.5" width="11" height="12" rx="1.6" fill="#3b82f6" stroke="#fff" stroke-width="1"/></svg>`;
+    const listBody = `
+      <div class="pick-manage">
+        <p class="group-title">${esc(idea.note)}</p>
+        <div class="fantasy-actions"><button type="button" class="mini-btn" id="undo-transfer">Undo last transfer</button><button type="button" class="mini-btn" id="ask-transfer">Ask Derby</button></div>
+        <form class="team-search" id="sign-form">
+          <input name="q" placeholder="Search a player to buy" />
+          <button class="search-go" type="submit">Search</button>
+        </form>
+        <div id="sign-results"></div>
+        <p class="group-title">Squad</p>
+        <div class="group">${state.squad
+          .map(
+            (player) => `<div class="setting-row"><strong>${esc(player.name)}</strong><span>${ctx.money(player.price)} <button type="button" class="mini-btn" data-sell="${esc(player.id)}">Sell</button></span></div>`
+          )
+          .join("") || `<div class="empty">No players yet.</div>`}</div>
+        <p class="group-title">Transfer history</p>
+        <div class="group">${(state.transferLog || [])
+          .slice(0, 12)
+          .map((row) => `<div class="setting-row"><strong>${esc(row.in || "Sold")}</strong><span>${esc(row.out || row.in)} ${ctx.money(row.price)}</span></div>`)
+          .join("") || `<div class="empty">No transfers yet.</div>`}</div>
+      </div>`;
+    shell(
+      `
+      <div class="gw-screen is-transfer">
+        <header class="gw-head">
+          <button type="button" class="gw-back" id="xfer-back" aria-label="Back">‹</button>
+          <div class="gw-titles"><h2>Transfers</h2></div>
+          <div class="gw-crest">${crest}</div>
+        </header>
+        <p class="pick-deadline">Gameweek ${stamp.week} • Deadline: ${esc(stamp.deadline ? shortDeadline(stamp.deadline) : "no kickoff yet")}</p>
+        <div class="xfer-stats">
+          <div class="xfer-stat"><strong>${state.freeTransfers}</strong><span>Free Transfers</span></div>
+          <div class="xfer-stat"><strong>${hit ? `-${hit} pts` : "0 pts"}</strong><span>Cost</span></div>
+          <div class="xfer-stat xfer-budget"><strong>${esc(ctx.money(left))}</strong><span>Budget</span></div>
+          ${chips
+            .map(([id, label, kind]) => {
+              const face = chipFace(id);
+              const status = face.used ? `<span class="pick-chip-status">${esc(face.text)}</span>` : `<button type="button" data-chip="${id}">Play</button>`;
+              return `<div class="pick-chip xfer-chip${face.used ? " is-used" : ""}">${chipGlyph(kind)}<strong>${esc(label)}</strong>${status}</div>`;
+            })
+            .join("")}
+        </div>
+        <div class="gw-tools">
+          <div class="gw-switch" role="tablist">
+            <button type="button" data-xfer-tab="pitch" class="${transferTab === "pitch" ? "is-on" : ""}">Pitch</button>
+            <button type="button" data-xfer-tab="list" class="${transferTab === "list" ? "is-on" : ""}">List</button>
+          </div>
+          <div class="gw-menu">
+            <button type="button" id="xfer-stat" aria-expanded="false">${opponentIcon}${statName} ▾</button>
+            <div class="gw-menu-pop" id="xfer-stat-pop" hidden>
+              <button type="button" data-xfer-stat="fixture">Opponent</button>
+              <button type="button" data-xfer-stat="points">Points</button>
+              <button type="button" data-xfer-stat="price">Price</button>
+            </div>
+          </div>
+        </div>
+        ${
+          transferTab === "list"
+            ? listBody
+            : `<div class="gw-pitch">
+                <div class="gw-sky"><span>Fantasy</span><i class="gw-goal"></i><span>Fantasy</span></div>
+                ${lines.join("")}
+              </div>`
+        }
+        <div class="xfer-bar">
+          <button type="button" id="add-player">Add Player</button>
+          <button type="button" id="xfer-next">Next</button>
+        </div>
       </div>
-      <button type="button" class="mini-btn" id="undo-transfer" title="Roll back the last buy or sale">Undo last transfer</button>
-      <p class="group-title">${esc(deadlineLine())}</p>
-      <div class="group">
-        <div class="setting-row"><strong>Suggested captain</strong><span>${esc(idea.captain || "—")}</span></div>
-        <div class="setting-row"><strong>Suggestion</strong><span>${esc(idea.note)}</span></div>
-        <button type="button" class="mini-btn" id="ask-transfer">Ask Derby for a transfer</button>
-      </div>
-      <form class="team-search" id="sign-form">
-        <input name="q" placeholder="Search a player to buy" />
-        <button class="search-go" type="submit">Search</button>
-      </form>
-      <div id="sign-results"></div>
-      <p class="group-title">Squad</p>
-      <div class="group">${state.squad
-        .map(
-          (player) => `<div class="setting-row"><strong>${esc(player.name)}</strong><span>${ctx.money(player.price)} <button type="button" class="mini-btn" data-sell="${esc(player.id)}">Sell</button></span></div>`
-        )
-        .join("")}</div>
-      <p class="group-title">Chips</p>
-      <div class="group">${["wildcard1", "wildcard2", "freehit", "bench", "triple"]
-        .map((id) => {
-          const used = state.chips[id];
-          const on = state.chipThisWeek === id;
-          return `<div class="setting-row"><strong>${esc(chipName(id))}</strong><span>${used ? `Used ${esc(used)}` : on ? "On" : `<button type="button" class="mini-btn" data-chip="${id}">Play</button>`}</span></div>`;
-        })
-        .join("")}</div>
-      <p class="group-title">Transfer history</p>
-      <div class="group">${(state.transferLog || [])
-        .slice(0, 12)
-        .map((row) => `<div class="setting-row"><strong>${esc(row.in || "Sold")}</strong><span>${esc(row.out || row.in)} ${ctx.money(row.price)}</span></div>`)
-        .join("") || `<div class="empty">No transfers yet.</div>`}</div>
-    `);
-    ctx.list.querySelector("#undo-transfer").addEventListener("click", () => {
+    `,
+      { bare: true }
+    );
+    ctx.list.querySelector("#xfer-back")?.addEventListener("click", () => go("home"));
+    ctx.list.querySelectorAll("[data-xfer-tab]").forEach((button) => {
+      button.addEventListener("click", () => {
+        transferTab = button.dataset.xferTab;
+        render(ctx);
+      });
+    });
+    const pop = ctx.list.querySelector("#xfer-stat-pop");
+    ctx.list.querySelector("#xfer-stat")?.addEventListener("click", () => {
+      if (!pop) return;
+      const open = pop.hidden;
+      pop.hidden = !open;
+      ctx.list.querySelector("#xfer-stat")?.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    ctx.list.querySelectorAll("[data-xfer-stat]").forEach((button) => {
+      button.addEventListener("click", () => {
+        transferStat = button.dataset.xferStat;
+        render(ctx);
+      });
+    });
+    const openSearch = () => {
+      transferTab = "list";
+      transferFocus = true;
+      render(ctx);
+    };
+    ctx.list.querySelector("#add-player")?.addEventListener("click", openSearch);
+    ctx.list.querySelectorAll("[data-add]").forEach((button) => button.addEventListener("click", openSearch));
+    ctx.list.querySelector("#xfer-next")?.addEventListener("click", () => go("team"));
+    ctx.list.querySelector("#undo-transfer")?.addEventListener("click", () => {
       const error = GAME().rollback(state);
       if (error) return window.alert(error);
       persist();
       render(ctx);
     });
-    ctx.list.querySelector("#ask-transfer").addEventListener("click", () => {
+    ctx.list.querySelector("#ask-transfer")?.addEventListener("click", () => {
       ctx.ask(`Suggest transfers for my Derby fantasy team ${state.teamName}. Squad: ${state.squad.map((player) => `${player.name} ${player.slot} ${player.price}`).join(", ")}. ${idea.note}`);
     });
-    ctx.list.querySelector("#sign-form").addEventListener("submit", async (event) => {
+    ctx.list.querySelector("#sign-form")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const query = new FormData(event.target).get("q").toString();
       const box = ctx.list.querySelector("#sign-results");
@@ -792,7 +880,7 @@
     });
     ctx.list.querySelectorAll("[data-chip]").forEach((button) => {
       button.addEventListener("click", () => {
-        const name = chipName(button.dataset.chip);
+        const name = chipName(button.dataset.chip).replace(", first half", "").replace(", second half", "");
         if (!window.confirm(`Play ${name} this gameweek?`)) return;
         const error = GAME().playChip(state, button.dataset.chip, ctx.matches || []);
         if (error) window.alert(error);
@@ -800,6 +888,11 @@
         render(ctx);
       });
     });
+    if (transferFocus) {
+      transferFocus = false;
+      ctx.list.querySelector("#sign-form input")?.focus();
+    }
+    queueFaces(renderStamp);
   }
 
   function chipName(id) {
@@ -1131,9 +1224,11 @@
     const flagged = ["injured", "suspended", "unavailable", "doubt"].includes(player.status);
     const mark = player.captain ? `<span class="shirt-mark">C</span>` : player.vice ? `<span class="shirt-mark is-v">V</span>` : "";
     const mode = options.mode || pointsStat;
-    const action = options.bench ? `data-xi="${esc(player.id)}"` : `data-open="${esc(player.id)}"`;
+    const action = options.sell ? `data-sell="${esc(player.id)}"` : options.bench ? `data-xi="${esc(player.id)}"` : `data-open="${esc(player.id)}"`;
     const drag = options.drag ? ` draggable="true" data-drag="${esc(player.id)}"` : "";
+    const price = options.price ? `<span class="shirt-price">${esc(options.price)}</span>` : "";
     return `<button type="button" class="shirt-card" ${action}${drag}>
+      ${price}
       ${mark}
       ${flagged ? `<span class="shirt-flag" title="${esc(player.status)}">!</span>` : ""}
       <span class="shirt-photo">${ctx.faceMarkup(photo.url, player.name, "shirt-face", photo.fallback)}</span>

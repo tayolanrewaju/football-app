@@ -2241,3 +2241,96 @@ html[data-theme="light"] body {
 .is-pick .gw-line { padding-top: 0; }
 .is-pick .gw-sky span { padding: 4px 8px 3px; }
 .is-pick .gw-bench { padding: 1px 6px 4px; }
+
+.is-transfer {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.xfer-stats {
+  display: grid;
+  grid-template-columns: 0.7fr 0.7fr 0.9fr 1fr 1fr;
+  gap: 6px;
+  align-items: start;
+  padding: 8px 10px 0;
+  text-align: center;
+}
+
+.xfer-stat strong {
+  display: block;
+  font-size: 18px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: #2b1248;
+}
+
+.xfer-stat span {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.15;
+  color: #6d6280;
+}
+
+.xfer-budget strong {
+  display: inline-block;
+  background: #178a45;
+  color: #fff;
+  border-radius: 8px;
+  padding: 3px 6px 2px;
+  font-size: 13px;
+}
+
+.xfer-chip {
+  padding: 4px 2px 4px;
+  gap: 1px;
+  border-radius: 14px;
+}
+
+.xfer-chip svg { width: 26px; height: 26px; }
+.xfer-chip strong { min-height: 22px; font-size: 10px; }
+
+.shirt-price {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.is-transfer .shirt-card { width: 58px; }
+.is-transfer .shirt-name { max-width: 58px; font-size: 9px; }
+.is-transfer .gw-line { gap: 0; padding: 4px 2px 0; }
+.is-transfer .shirt-card.is-empty { cursor: pointer; }
+
+.xfer-bar {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 10px;
+  margin-top: auto;
+  padding: 12px 12px 14px;
+  background: linear-gradient(180deg, rgba(246, 247, 251, 0), #f6f7fb 30%);
+}
+
+.xfer-bar button {
+  border-radius: 999px;
+  padding: 14px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.xfer-bar #add-player {
+  border: 0;
+  background: #3b1460;
+  color: #fff;
+}
+
+.xfer-bar #xfer-next {
+  border: 1.5px solid #d5d0e0;
+  background: #fff;
+  color: #3b1460;
+}
