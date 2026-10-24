@@ -2473,6 +2473,30 @@ html[data-theme="light"] body {
   justify-self: center;
 }
 
+/* A filled transfer card is price / photo / name. An empty add slot has
+   only the photo and the name, so the photo lands in the auto row. The
+   plus is absolutely positioned and gives that row no height, which
+   shrinks the rectangle to the border. Size the empty slot on its own. */
+.is-transfer .gw-pitch .shirt-card.is-add {
+  grid-template-rows: auto auto;
+  align-self: center;
+  height: auto;
+  max-height: none;
+}
+
+.is-transfer .gw-pitch .shirt-card.is-add .shirt-photo {
+  width: 44px;
+  height: 58px;
+  min-width: 44px;
+  min-height: 58px;
+  max-height: 58px;
+  aspect-ratio: 3 / 4;
+}
+
+.is-transfer .gw-pitch .shirt-card.is-add .shirt-plus {
+  font-size: 22px;
+}
+
 .xfer-stats {
   display: grid;
   grid-template-columns: 0.7fr 0.7fr 0.9fr 1fr 1fr;
