@@ -1688,6 +1688,24 @@ html[data-theme="light"] body {
   padding: 0 0 6px;
 }
 
+#favourites:has(.is-points) #fav-modes { display: none; }
+
+#favourites-list:has(.is-points) {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+#favourites-list:has(.is-points) > .fantasy-page {
+  flex: 1 0 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
 .gw-screen {
   margin: 0;
   background: #f6f7fb;
@@ -2050,6 +2068,80 @@ html[data-theme="light"] body {
   color: #8b8498;
   font-weight: 700;
 }
+
+.is-points {
+  flex: 1 0 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.is-points .gw-season { display: none; }
+
+.is-points .gw-head,
+.is-points .gw-scores,
+.is-points .gw-tools,
+.is-points .gw-bench { flex: 0 0 auto; }
+
+.is-points .gw-head { padding: 2px 12px 0; }
+.is-points .gw-titles h2 { font-size: 18px; line-height: 1.05; }
+.is-points .gw-week { margin-top: 0; }
+.is-points .gw-scores { padding: 2px 8px 0; }
+.is-points .gw-scores strong { font-size: 20px; }
+.is-points .gw-scores span { margin-top: 2px; font-size: 12px; }
+.is-points .gw-total { padding: 4px 14px 3px; }
+.is-points .gw-total strong { font-size: 30px; }
+.is-points .gw-tools { padding: 4px 12px 2px; }
+
+.is-points .gw-pitch {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+}
+
+.is-points .gw-sky { flex: 0 0 auto; }
+
+.is-points .gw-line {
+  flex: 1 1 0;
+  min-height: 78px;
+  align-items: center;
+  padding: 0 2px;
+}
+
+.is-points .gw-pitch .shirt-card {
+  width: 78px;
+  height: 100%;
+  max-height: 118px;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  align-content: center;
+}
+
+.is-points .gw-pitch .shirt-photo {
+  width: 64px;
+  height: 100%;
+  max-height: 58px;
+  min-height: 0;
+  align-self: end;
+}
+
+.is-points .gw-pitch .shirt-name {
+  max-width: 78px;
+  min-height: 18px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.is-points .gw-pitch .shirt-sub {
+  font-size: 15px;
+  font-weight: 800;
+  margin-top: 1px;
+  line-height: 1;
+}
+
+.is-points .gw-bench { padding: 4px 6px 8px; }
+.is-points .gw-bench .shirt-card { width: 72px; height: auto; }
+.is-points .gw-bench .shirt-photo { width: 52px; height: 40px; }
+.is-points .gw-bench .shirt-sub { font-size: 14px; font-weight: 800; }
 
 .gw-list-label {
   margin: 14px 16px 4px;

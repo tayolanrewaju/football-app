@@ -1346,7 +1346,8 @@
     const totalShown = weekShift === 0 ? net : past?.points ?? "–";
     const shape = GAME().FORMATIONS[state.formation] || GAME().FORMATIONS["4-3-3"];
     const xi = state.squad.filter((player) => player.xi);
-    const bench = state.squad.filter((player) => !player.xi);
+    const rank = { G: 0, D: 1, M: 2, A: 3 };
+    const bench = state.squad.filter((player) => !player.xi).slice().sort((a, b) => (rank[a.slot] ?? 9) - (rank[b.slot] ?? 9));
     const lines = ["G", "D", "M", "A"].map((slot) => {
       const need = slot === "G" ? 1 : shape[slot] || 0;
       const players = xi.filter((player) => player.slot === slot);
@@ -1371,7 +1372,7 @@
       .join("");
     shell(
       `
-      <div class="gw-screen">
+      <div class="gw-screen is-points">
         <header class="gw-head">
           <button type="button" class="gw-back" id="gw-back" aria-label="Back">‹</button>
           <div class="gw-titles">
