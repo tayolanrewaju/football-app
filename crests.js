@@ -141,7 +141,7 @@
       .replace(/[^A-Z0-9 ]/g, "")
       .trim();
     const compact = text.replace(/\s+/g, "");
-    const limit = variant === "lg" ? 11 : variant === "sm" ? 7 : variant === "xs" ? 3 : 8;
+    const limit = variant === "lg" ? 11 : variant === "xs" ? 3 : 4;
     if (!compact) return "FC";
     return compact.length <= limit ? compact : compact.slice(0, 3);
   }
