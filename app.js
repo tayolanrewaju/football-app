@@ -1180,10 +1180,13 @@ function money(value) {
   return `£${number.toFixed(1)}m`;
 }
 
-function faceMarkup(url, name, className = "player-face") {
+function faceMarkup(url, name, className = "player-face", fallbackUrl = "") {
   const initial = escapeHtml((name || "?").trim().charAt(0) || "?");
-  if (!url) return `<span class="${className} is-fallback">${initial}</span>`;
-  return `<span class="${className}" data-initial="${initial}"><img src="${escapeHtml(url)}" alt="" referrerpolicy="no-referrer" onerror="const box=this.parentElement; box.classList.add('is-fallback'); box.textContent=box.dataset.initial || '?';" /></span>`;
+  const primary = url || fallbackUrl || "";
+  const fallback = url && fallbackUrl && fallbackUrl !== url ? fallbackUrl : "";
+  if (!primary) return `<span class="${className} is-fallback">${initial}</span>`;
+  const fallbackAttr = fallback ? ` data-fallback="${escapeHtml(fallback)}"` : "";
+  return `<span class="${className}" data-initial="${initial}"><img src="${escapeHtml(primary)}" alt="" referrerpolicy="no-referrer"${fallbackAttr} onerror="if(this.dataset.fallback){this.src=this.dataset.fallback; this.dataset.fallback=''; return;} const box=this.parentElement; box.classList.add('is-fallback'); box.textContent=box.dataset.initial || '?';" /></span>`;
 }
 
 function fantasySpent() {
@@ -1250,7 +1253,7 @@ function ensureFantasyPoints() {
 async function signFantasyPlayer(hit) {
   if (fantasySquad.some((player) => player.id === hit.id)) return;
   const quote = hit.quote || (await API.quoteFantasy(hit));
-  const slot = quote.slot || FANTASY.slotOf(hit.position || hit.positionName);
+  const slot = (!quote.estimated && quote.slot) || FANTASY.slotOf(hit.positionName || hit.position || quote.slot);
   if (!FANTASY.canAdd(fantasySquad, slot)) return;
   const price = Number(quote.price);
   if (!Number.isFinite(price) || fantasySpent() + price > FANTASY.BUDGET + 0.001) return;
@@ -1262,7 +1265,7 @@ async function signFantasyPlayer(hit) {
     position: hit.positionName || hit.position || slot,
     slot,
     number: hit.number || "",
-    headshot: hit.headshot || "",
+    headshot: quote.headshot || hit.headshot || "",
     price,
     estimated: !!quote.estimated,
     sources: quote.sources || [],

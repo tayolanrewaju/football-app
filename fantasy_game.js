@@ -48,6 +48,7 @@
       country: "",
       region: "",
       theme: "dark",
+      badgeImage: "",
       undo: null,
       rankHistory: [],
       archives: [],
@@ -196,17 +197,33 @@
     state.subLog = [{ at: Date.now(), text }, ...(state.subLog || [])].slice(0, 20);
   }
 
+  function usualSlot(player) {
+    const explicit = String(player?.slot || "").toUpperCase();
+    if (explicit === "G" || explicit === "D" || explicit === "M" || explicit === "A") return explicit;
+    return CORE.slotOf(player?.positionName || player?.position || "");
+  }
+
   function sign(state, player) {
     rememberUndo(state);
-    const starting = state.squad.filter((item) => item.xi && item.slot === player.slot).length;
+    const slot = usualSlot(player);
     const shape = FORMATIONS[state.formation] || FORMATIONS["4-3-3"];
-    const cap = player.slot === "G" ? 1 : shape[player.slot];
-    state.squad.push({
+    const cap = slot === "G" ? 1 : shape[slot] || 0;
+    const starting = state.squad.filter((item) => item.xi && item.slot === slot).length;
+    const seated = {
       ...player,
+      slot,
       xi: starting < cap && state.squad.filter((item) => item.xi).length < 11,
       captain: state.squad.length === 0,
       vice: state.squad.length === 1,
-    });
+    };
+    const rank = { G: 0, D: 1, M: 2, A: 3 };
+    const xi = state.squad.filter((item) => item.xi);
+    const bench = state.squad.filter((item) => !item.xi);
+    const pile = seated.xi ? xi : bench;
+    const at = pile.findIndex((item) => (rank[item.slot] ?? 9) > rank[slot]);
+    if (at < 0) pile.push(seated);
+    else pile.splice(at, 0, seated);
+    state.squad = [...xi, ...bench];
     if (state.built) state.transfersThisWeek += 1;
     if (state.squad.length >= 15) state.built = true;
     state.transferLog.unshift({ at: Date.now(), week: state.weekKey, in: player.name, out: "", price: player.price });
@@ -425,6 +442,7 @@
     issues,
     canSign,
     sign,
+    usualSlot,
     sell,
     hit,
     chipAvailable,
@@ -463,6 +481,17 @@
     const blocked = canSign(state, { id: "4", name: "D", club: "Arsenal", slot: "D", price: 8 }, [], new Date());
     if (!blocked.includes("3")) throw new Error(blocked);
     if (hit(state) !== 8) throw new Error(`hit ${hit(state)}`);
+    const placed = blank();
+    placed.teamName = "Seats";
+    sign(placed, { id: "gk", name: "Keeper", club: "A", position: "Goalkeeper", price: 8 });
+    sign(placed, { id: "cb", name: "Stopper", club: "B", positionName: "Centre-Back", price: 8 });
+    sign(placed, { id: "wg", name: "Winger", club: "C", position: "Left Wing", price: 8 });
+    sign(placed, { id: "gk2", name: "Backup", club: "D", slot: "G", price: 8 });
+    const byId = Object.fromEntries(placed.squad.map((item) => [item.id, item]));
+    if (byId.gk.slot !== "G" || !byId.gk.xi) throw new Error("keeper seat");
+    if (byId.cb.slot !== "D" || !byId.cb.xi) throw new Error("defender seat");
+    if (byId.wg.slot !== "A" || !byId.wg.xi) throw new Error("winger seat");
+    if (byId.gk2.slot !== "G" || byId.gk2.xi) throw new Error("second keeper should be benched");
     state.chipThisWeek = "wildcard1";
     if (hit(state) !== 0) throw new Error("wildcard hit");
     console.log("fantasy game self-test ok");

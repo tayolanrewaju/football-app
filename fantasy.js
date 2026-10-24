@@ -9,10 +9,15 @@
 
   function slotOf(position) {
     const raw = String(position || "").toUpperCase().trim();
+    if (!raw) return "M";
+    if (/GOAL|KEEPER|\bGKP\b|\bGK\b/.test(raw) || raw === "G") return "G";
+    if (/WING[\s-]?BACK|FULL[\s-]?BACK|DEF|BACK|\bCB\b|\bLB\b|\bRB\b|\bWB\b|\bLWB\b|\bRWB\b/.test(raw)) return "D";
+    if (/MID/.test(raw)) return "M";
+    if (/FORWARD|STRIK|ATTACK|WING|\bFW\b|\bFWD\b|\bST\b|\bCF\b|\bSS\b/.test(raw) || raw === "F" || raw === "A") return "A";
     const token = raw.split(/[\s/-]/)[0];
-    if (token === "G" || token === "GK" || token === "GKP" || raw.includes("GOAL")) return "G";
-    if (["D", "DF", "DEF", "CB", "LB", "RB", "WB", "LWB", "RWB", "CD"].includes(token) || token.startsWith("CD")) return "D";
-    if (["F", "FW", "FWD", "ST", "CF", "SS", "A"].includes(token) || raw.includes("FORWARD") || raw.includes("STRIKER")) return "A";
+    if (token === "G" || token === "GK" || token === "GKP") return "G";
+    if (["D", "DF", "DEF", "CB", "LB", "RB", "WB", "LWB", "RWB"].includes(token)) return "D";
+    if (["F", "FW", "FWD", "ST", "CF", "SS", "A"].includes(token)) return "A";
     return "M";
   }
 
@@ -277,6 +282,17 @@
     );
     if (!cover.players.find((player) => player.id === "u").active) throw new Error("autosub");
     if (cover.players.find((player) => player.id === "s").points !== 0) throw new Error("starter should sit");
+    const seats = {
+      Goalkeeper: "G",
+      "Centre-Back": "D",
+      "Wing Back": "D",
+      "Attacking Midfielder": "M",
+      "Left Wing": "A",
+      F: "A",
+    };
+    Object.entries(seats).forEach(([position, slot]) => {
+      if (slotOf(position) !== slot) throw new Error(`${position} landed in ${slotOf(position)}`);
+    });
     console.log("fantasy self-test ok", { forward: forward.points, keeper: keeper.points, defender: defender.points, bonus: top.bonus, triple: triple.total, boost: boost.total });
   }
 })(typeof window !== "undefined" ? window : globalThis);

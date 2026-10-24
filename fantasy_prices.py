@@ -7,8 +7,12 @@ import math
 import re
 import ssl
 import threading
+import time
 import unicodedata
+import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 DERBY_BUDGET = 150.0
 FPL_BUDGET = 100.0
@@ -33,15 +37,23 @@ def fold(value: str) -> str:
 
 def slot_from_position(position: str) -> str:
     raw = str(position or "").upper().strip()
-    token = re.split(r"[\s/-]", raw)[0]
-    if token in {"G", "GK", "GKP"} or "GOAL" in raw:
-        return "G"
-    if token in {"D", "DF", "DEF", "CB", "LB", "RB", "WB", "LWB", "RWB", "CD", "LD", "RD"} or token.startswith("CD"):
-        return "D"
-    if token in {"F", "FW", "FWD", "ST", "CF", "SS", "A"} or "FORWARD" in raw or "STRIKER" in raw:
-        return "A"
-    if token in {"SUB", ""}:
+    if not raw:
         return "M"
+    if re.search(r"GOAL|KEEPER|\bGKP\b|\bGK\b", raw) or raw == "G":
+        return "G"
+    if re.search(r"WING[\s-]?BACK|FULL[\s-]?BACK|DEF|BACK|\bCB\b|\bLB\b|\bRB\b|\bWB\b|\bLWB\b|\bRWB\b", raw):
+        return "D"
+    if re.search(r"MID", raw):
+        return "M"
+    if re.search(r"FORWARD|STRIK|ATTACK|WING|\bFW\b|\bFWD\b|\bST\b|\bCF\b|\bSS\b", raw) or raw in {"F", "A"}:
+        return "A"
+    token = re.split(r"[\s/-]", raw)[0]
+    if token in {"G", "GK", "GKP"}:
+        return "G"
+    if token in {"D", "DF", "DEF", "CB", "LB", "RB", "WB", "LWB", "RWB", "CD", "LD", "RD"}:
+        return "D"
+    if token in {"F", "FW", "FWD", "ST", "CF", "SS", "A"}:
+        return "A"
     return "M"
 
 
@@ -345,10 +357,12 @@ def quote(name: str, club: str = "", position: str = "") -> dict:
     slots = [hit["slot"] for hit in found if hit.get("slot")]
     chosen = max(set(slots), key=slots.count) if slots else slot
     average = round(sum(hit["derby"] for hit in found) / len(found), 1)
+    portrait = next((hit.get("headshot") for hit in found if hit.get("headshot")), "")
     return {
         "price": average,
         "estimated": False,
         "slot": chosen,
+        "headshot": portrait,
         "sources": [
             {
                 "league": hit["league"],
@@ -450,3 +464,155 @@ def list_players(query: str = "", slot: str = "", club: str = "", sort: str = "p
     total = len(rows)
     start = max(0, offset)
     return {"players": rows[start:start + max(1, min(limit, 80))], "total": total}
+
+
+_face_lock = threading.Lock()
+_face_mem: dict[str, dict] = {}
+_roster_mem: dict[str, list] = {}
+_FACE_FILE = Path(__file__).resolve().parent / "data" / "espn-faces.json"
+_FACE_TTL = 7 * 24 * 3600
+
+
+def _same_name(left: str, right: str) -> bool:
+    a, b = fold(left), fold(right)
+    if not a or not b:
+        return False
+    if a == b or a in b or b in a:
+        return True
+    apart, bpart = a.split(), b.split()
+    return bool(apart and bpart and apart[-1] == bpart[-1] and apart[0][:1] == bpart[0][:1])
+
+
+def _face_get(key: str) -> dict | None:
+    with _face_lock:
+        if not _face_mem and _FACE_FILE.exists():
+            try:
+                loaded = json.loads(_FACE_FILE.read_text())
+                if isinstance(loaded, dict):
+                    _face_mem.update(loaded)
+            except Exception:
+                pass
+        cached = _face_mem.get(key)
+    if not cached:
+        return None
+    if time.time() - float(cached.get("at") or 0) > _FACE_TTL:
+        return None
+    return cached
+
+
+def _face_put(key: str, row: dict) -> None:
+    with _face_lock:
+        _face_mem[key] = row
+        try:
+            _FACE_FILE.parent.mkdir(exist_ok=True)
+            _FACE_FILE.write_text(json.dumps(_face_mem))
+        except Exception:
+            pass
+
+
+def _roster(slug: str, team_id: str) -> list:
+    cache_key = f"{slug}:{team_id}"
+    with _face_lock:
+        cached = _roster_mem.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        data = _fetch(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/teams/{team_id}/roster")
+        athletes = data.get("athletes") or []
+    except Exception:
+        athletes = []
+    with _face_lock:
+        _roster_mem[cache_key] = athletes
+    return athletes
+
+
+def espn_portrait(name: str) -> dict:
+    key = fold(name)
+    cached = _face_get(key)
+    if cached:
+        return cached
+    result = {"id": "", "headshot": "", "position": "", "slot": "M", "at": time.time()}
+    if not key:
+        return result
+    try:
+        query = urllib.parse.quote(name)
+        data = _fetch(f"https://site.api.espn.com/apis/common/v3/search?query={query}&limit=6&type=player")
+        items = [
+            item
+            for item in (data.get("items") or [])
+            if item.get("type") == "player" and item.get("sport") in (None, "", "soccer")
+        ]
+        chosen = next((item for item in items if _same_name(item.get("displayName"), name)), None)
+        if not chosen:
+            _face_put(key, result)
+            return result
+        result["id"] = str(chosen.get("id") or "")
+        position = chosen.get("position") or {}
+        result["position"] = position.get("displayName") or position.get("abbreviation") or ""
+        result["slot"] = slot_from_position(position.get("abbreviation") or result["position"])
+        team = ((chosen.get("teamRelationships") or [{}])[0].get("core") or {})
+        slug = str(chosen.get("defaultLeagueSlug") or "eng.1")
+        team_id = team.get("id")
+        if team_id:
+            for athlete in _roster(slug, team_id):
+                if str(athlete.get("id") or "") == result["id"] or _same_name(athlete.get("displayName"), name):
+                    href = (athlete.get("headshot") or {}).get("href") or ""
+                    if href:
+                        result["headshot"] = href
+                    abbr = (athlete.get("position") or {}).get("abbreviation") or ""
+                    if abbr:
+                        result["position"] = (athlete.get("position") or {}).get("displayName") or abbr
+                        result["slot"] = slot_from_position(abbr or result["position"])
+                    break
+    except Exception:
+        pass
+    _face_put(key, result)
+    return result
+
+
+def _book_hit(name: str) -> dict | None:
+    books = ensure()
+    if not books:
+        return None
+    found = []
+    for book in books["books"]:
+        hit = _pick(book, name, "")
+        if hit:
+            found.append(hit)
+    return found[0] if found else None
+
+
+def faces_for(names: list[str]) -> dict:
+    clean = []
+    seen = set()
+    for name in names:
+        text = str(name or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        clean.append(text)
+        if len(clean) >= 20:
+            break
+    faces = {}
+
+    def one(person: str) -> tuple[str, dict]:
+        listed = _book_hit(person)
+        espn = espn_portrait(person)
+        book_slot = (listed or {}).get("slot") or ""
+        return person, {
+            "slot": book_slot or espn.get("slot") or "M",
+            "headshot": (listed or {}).get("headshot") or "",
+            "espnHeadshot": espn.get("headshot") or "",
+            "espnId": espn.get("id") or "",
+            "position": espn.get("position") or "",
+        }
+
+    if len(clean) <= 1:
+        for person in clean:
+            key, row = one(person)
+            faces[key] = row
+    else:
+        with ThreadPoolExecutor(max_workers=min(6, len(clean))) as pool:
+            for key, row in pool.map(one, clean):
+                faces[key] = row
+    return {"faces": faces}

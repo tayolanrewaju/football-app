@@ -28,6 +28,9 @@
   let playerNote = "";
   let busy = false;
   let weekShift = 0;
+  let pointsTab = "pitch";
+  let pointsStat = "points";
+  let badgeBusy = false;
   let renderStamp = 0;
   let rulesLoaded = false;
 
@@ -197,9 +200,8 @@
       `
       <section class="fpl-card">
         <div class="fpl-top">
-          <button type="button" class="fpl-badge" id="gen-badge" style="--badge:${color}" title="Generate team badge">
-            <strong>${esc(initials)}</strong>
-            <small>Generate team badge</small>
+          <button type="button" class="fpl-badge${state.badgeImage ? " has-image" : ""}" id="gen-badge" style="--badge:${color}" title="Generate team badge">
+            ${state.badgeImage ? `<img src="${esc(state.badgeImage)}" alt="" />` : `<strong>${esc(initials)}</strong><small>${badgeBusy ? "Drawing…" : "Generate team badge"}</small>`}
           </button>
           <div class="fpl-id">
             <h2>${esc(state.teamName || "Name your team")}</h2>
@@ -252,9 +254,7 @@
       { bare: true }
     );
     ctx.list.querySelector("#gen-badge")?.addEventListener("click", () => {
-      state.badgeColor = ((state.badgeColor || 0) + 1) % BADGE_COLORS.length;
-      persist();
-      render(ctx);
+      generateBadge();
     });
     ctx.list.querySelectorAll("[data-home-tab]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -420,7 +420,7 @@
           .map((player) => {
             const scored = ctx.points?.players?.find((item) => item.id === player.id);
             return `<button type="button" class="pitch-player" draggable="true" data-drag="${esc(player.id)}" data-open="${esc(player.id)}">
-              ${ctx.faceMarkup(player.headshot, player.name, "pitch-face")}
+              ${ctx.faceMarkup(faceOf(player).url, player.name, "pitch-face", faceOf(player).fallback)}
               <span class="pitch-name">${esc(player.name.split(" ").slice(-1)[0])}${player.captain ? " (C)" : ""}${player.vice ? " (V)" : ""}</span>
               <span class="pitch-meta">${scored ? `${scored.points} pts` : ctx.money(player.price)}</span>
             </button>`;
@@ -546,6 +546,7 @@
       window.alert(text);
     });
     bindPitch();
+    queueFaces(renderStamp);
   }
 
   function pageTransfers() {
@@ -608,7 +609,8 @@
       box.innerHTML = `<div class="group">${priced
         .map((hit, index) => {
           const price = hit.quote?.price;
-          return `<div class="player-row"><div><div class="team-name">${esc(hit.name)}</div><div class="team-meta">${esc(hit.teamName || "")} · ${price == null ? "—" : ctx.money(price)}</div></div><button type="button" class="mini-btn" data-buy="${index}">Buy</button></div>`;
+          const photo = hit.quote?.headshot || "";
+          return `<div class="player-row">${ctx.faceMarkup(photo, hit.name)}<div><div class="team-name">${esc(hit.name)}</div><div class="team-meta">${esc(hit.teamName || "")} · ${esc((!hit.quote?.estimated && hit.quote?.slot) || CORE().slotOf(hit.positionName || hit.position))} · ${price == null ? "—" : ctx.money(price)}</div></div><button type="button" class="mini-btn" data-buy="${index}">Buy</button></div>`;
         })
         .join("")}</div>`;
       box.querySelectorAll("[data-buy]").forEach((button) => {
@@ -618,9 +620,11 @@
             id: hit.id,
             name: hit.name,
             club: hit.teamName || "",
-            slot: hit.quote?.slot || CORE().slotOf(hit.position),
+            slot: (!hit.quote?.estimated && hit.quote?.slot) || CORE().slotOf(hit.positionName || hit.position),
+            position: hit.positionName || hit.position || "",
             price: Number(hit.quote?.price),
-            headshot: hit.headshot || "",
+            headshot: hit.quote?.headshot || "",
+            espnHeadshot: "",
             status: "available",
             sources: hit.quote?.sources || [],
             form: 0,
@@ -729,7 +733,11 @@
         const previous = state.priceMarks?.[player.id];
         if (!previous || previous.price !== player.price) state.priceMarks[player.id] = { price: player.price, at: Date.now(), prev: previous?.price ?? null };
         const owned = state.squad.find((item) => item.id === player.id || item.name === player.name);
-        if (owned) Object.assign(owned, { status: player.status, news: player.news, form: player.form, xg: player.xg, xa: player.xa, xgi: player.xgi, chance: player.chance, owned: player.owned, priceChange: player.priceChange, badge: player.badge, penalties: player.penalties, setPieces: player.setPieces, cleanSheets: player.cleanSheets });
+        if (owned) {
+          Object.assign(owned, { status: player.status, news: player.news, form: player.form, xg: player.xg, xa: player.xa, xgi: player.xgi, chance: player.chance, owned: player.owned, priceChange: player.priceChange, badge: player.badge, penalties: player.penalties, setPieces: player.setPieces, cleanSheets: player.cleanSheets });
+          if (!owned.headshot && player.headshot) owned.headshot = player.headshot;
+          if (!["G", "D", "M", "A"].includes(owned.slot) && player.slot) owned.slot = player.slot;
+        }
       });
       GAME().save(state);
       playerNote = data.error ? data.error : `${data.total || 0} players`;
@@ -773,7 +781,7 @@
       .join("");
     shell(`
       <div class="group player-hero"><div class="player-hero-top">
-        ${ctx.faceMarkup(player.headshot, player.name, "player-hero-face")}
+        ${ctx.faceMarkup(faceOf(player).url, player.name, "player-hero-face", faceOf(player).fallback)}
         <div>
           <h2 class="player-hero-name">${esc(player.name)}</h2>
           <p class="intel-note">${esc(player.club || "")} · ${esc(player.slot)} · ${ctx.money(player.price)}</p>
@@ -842,21 +850,367 @@
       <div class="group">${(state.watchlist || []).slice(0, 8).map((player) => `<div class="setting-row"><strong>${esc(player.name)}</strong><span>${ctx.money(player.price)}</span></div>`).join("")}</div>`);
   }
 
+  const CLUB_COLORS = [
+    ["manchester city", "#6cabdd"],
+    ["man city", "#6cabdd"],
+    ["manchester united", "#da291c"],
+    ["man united", "#da291c"],
+    ["nottingham", "#dd0000"],
+    ["tottenham", "#132257"],
+    ["west ham", "#7a263a"],
+    ["wolverhampton", "#fdb913"],
+    ["crystal palace", "#1b458f"],
+    ["aston villa", "#94bee5"],
+    ["newcastle", "#241f20"],
+    ["brighton", "#0057b8"],
+    ["bournemouth", "#da291c"],
+    ["brentford", "#e30613"],
+    ["liverpool", "#c8102e"],
+    ["arsenal", "#ef0107"],
+    ["chelsea", "#034694"],
+    ["everton", "#003399"],
+    ["fulham", "#111111"],
+    ["barcelona", "#a50044"],
+    ["real madrid", "#febe10"],
+    ["atletico", "#cb3524"],
+    ["bayern", "#dc052d"],
+    ["dortmund", "#fde100"],
+    ["juventus", "#111111"],
+    ["napoli", "#12a0d7"],
+  ];
+  const CLUB_CODES = [
+    ["manchester city", "MCI"],
+    ["manchester united", "MUN"],
+    ["nottingham", "NFO"],
+    ["tottenham", "TOT"],
+    ["west ham", "WHU"],
+    ["wolverhampton", "WOL"],
+    ["crystal palace", "CRY"],
+    ["aston villa", "AVL"],
+    ["newcastle", "NEW"],
+    ["brighton", "BHA"],
+    ["bournemouth", "BOU"],
+    ["brentford", "BRE"],
+    ["liverpool", "LIV"],
+    ["arsenal", "ARS"],
+    ["chelsea", "CHE"],
+    ["everton", "EVE"],
+    ["fulham", "FUL"],
+    ["barcelona", "BAR"],
+    ["real madrid", "RMA"],
+    ["atletico", "ATM"],
+  ];
+  const SLOT_LABEL = { G: "GKP", D: "DEF", M: "MID", A: "FWD" };
+
+  function faceOf(player) {
+    const espn = player?.espnHeadshot || "";
+    const book = player?.headshot || "";
+    if (espn && book && espn !== book) return { url: espn, fallback: book };
+    return { url: espn || book, fallback: "" };
+  }
+
+  function clubColor(club) {
+    const name = String(club || "").toLowerCase();
+    for (const [needle, color] of CLUB_COLORS) {
+      if (name.includes(needle)) return color;
+    }
+    let hash = 0;
+    for (const ch of name) hash = (hash * 33 + ch.charCodeAt(0)) >>> 0;
+    return `hsl(${hash % 360} 62% 36%)`;
+  }
+
+  function inkFor(color) {
+    if (String(color).startsWith("hsl")) return "#fff";
+    const hex = String(color).replace("#", "");
+    if (hex.length < 6) return "#fff";
+    const channel = (start) => Number.parseInt(hex.slice(start, start + 2), 16);
+    const y = (channel(0) * 299 + channel(2) * 587 + channel(4) * 114) / 1000;
+    return y > 165 ? "#1a1a1a" : "#fff";
+  }
+
+  function shortClub(name) {
+    const key = String(name || "").toLowerCase();
+    for (const [needle, code] of CLUB_CODES) {
+      if (key.includes(needle)) return code;
+    }
+    const parts = String(name || "").replace(/[^A-Za-z ]/g, "").split(/\s+/).filter(Boolean);
+    if (!parts.length) return "—";
+    if (parts.length === 1) return parts[0].slice(0, 3).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1].slice(0, 2)).toUpperCase();
+  }
+
+  function viewedWhen() {
+    return new Date(Date.parse(`${CORE().weekKey()}T12:00:00Z`) + weekShift * 7 * 86400000);
+  }
+
+  function fixtureText(player) {
+    const info = GAME().difficulty(ctx.matches || [], player.club, viewedWhen());
+    const game = info.fixtures?.[0];
+    if (!game) return "—";
+    return `${shortClub(game.opponent)} (${game.atHome ? "H" : "A"})`;
+  }
+
+  function playerStat(player) {
+    if (pointsStat === "price") return ctx.money(player.price);
+    if (pointsStat === "fixture") return fixtureText(player);
+    if (weekShift !== 0) return "–";
+    const scored = (ctx.points?.players || []).find((item) => item.id === player.id);
+    return String(scored ? scored.points : 0);
+  }
+
+  function lastName(name) {
+    const particles = new Set(["van", "de", "der", "den", "da", "dos", "di", "del", "la", "le"]);
+    const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "Player";
+    if (parts.length >= 3) {
+      const second = parts[1];
+      if (/^mac$/i.test(second) && parts[2]) return `${second} ${parts[2]}`;
+      if (particles.has(second.toLowerCase())) return parts.slice(1).join(" ");
+      return second;
+    }
+    const usable = parts.filter((part) => !particles.has(part.toLowerCase()));
+    return usable[usable.length - 1] || parts[parts.length - 1];
+  }
+
+  function shirtCard(player) {
+    if (!player) {
+      return `<div class="shirt-card is-empty" aria-hidden="true"><span class="shirt-photo"></span><span class="shirt-name"></span><span class="shirt-sub"></span></div>`;
+    }
+    const photo = faceOf(player);
+    const color = clubColor(player.club);
+    const flagged = ["injured", "suspended", "unavailable", "doubt"].includes(player.status);
+    const mark = player.captain ? `<span class="shirt-mark">C</span>` : player.vice ? `<span class="shirt-mark is-v">V</span>` : "";
+    return `<button type="button" class="shirt-card" data-open="${esc(player.id)}">
+      ${mark}
+      ${flagged ? `<span class="shirt-flag" title="${esc(player.status)}">!</span>` : ""}
+      <span class="shirt-photo">${ctx.faceMarkup(photo.url, player.name, "shirt-face", photo.fallback)}</span>
+      <span class="shirt-name" style="background:${color};color:${inkFor(color)}">${esc(lastName(player.name))}</span>
+      <span class="shirt-sub">${esc(playerStat(player))}</span>
+    </button>`;
+  }
+
+  function queueFaces(stamp) {
+    const names = state.squad.map((player) => player.name).filter(Boolean);
+    if (!names.length) return;
+    const wanted = names.join("|");
+    fetch(`/api/fantasy/faces?names=${encodeURIComponent(wanted)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (stamp !== renderStamp) return;
+        let changed = false;
+        for (const player of state.squad) {
+          const hit = data.faces?.[player.name];
+          if (!hit) continue;
+          if (hit.espnHeadshot && player.espnHeadshot !== hit.espnHeadshot) {
+            player.espnHeadshot = hit.espnHeadshot;
+            changed = true;
+          }
+          const guessed = /headshots\/soccer\/players\/full/.test(player.headshot || "");
+          if (hit.headshot && (!player.headshot || (guessed && player.headshot !== hit.espnHeadshot))) {
+            if (player.headshot !== hit.headshot) {
+              player.headshot = hit.headshot;
+              changed = true;
+            }
+          }
+          if (!["G", "D", "M", "A"].includes(player.slot) && ["G", "D", "M", "A"].includes(hit.slot)) {
+            player.slot = hit.slot;
+            changed = true;
+          }
+        }
+        if (!changed) return;
+        GAME().save(state);
+        render(ctx);
+      })
+      .catch(() => {});
+  }
+
+  async function generateBadge() {
+    if (badgeBusy) return;
+    badgeBusy = true;
+    const button = ctx.list.querySelector("#gen-badge");
+    const note = button?.querySelector("small");
+    if (button) button.disabled = true;
+    if (note) note.textContent = "Drawing…";
+    try {
+      const res = await fetch("/api/fantasy/badge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          teamName: state.teamName || "Fantasy",
+          favouriteClub: state.favouriteClub || ctx.user?.favouriteClub || "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.image) {
+        window.alert(data.error || "Could not draw a badge.");
+        badgeBusy = false;
+        if (button) button.disabled = false;
+        if (note) note.textContent = "Generate team badge";
+        return;
+      }
+      state.badgeImage = await shrinkBadge(data.image);
+      badgeBusy = false;
+      try {
+        persist();
+      } catch {
+        state.badgeImage = "";
+        try {
+          persist();
+        } catch {
+          /* The squad is still in memory if storage rejects the image. */
+        }
+        window.alert("The badge was drawn, but it was too large to keep on this device.");
+      }
+      render(ctx);
+    } catch (err) {
+      badgeBusy = false;
+      window.alert(err?.message || "Could not draw a badge.");
+      if (button) button.disabled = false;
+      if (note) note.textContent = "Generate team badge";
+    }
+  }
+
+  function shrinkBadge(dataUrl) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 256;
+        canvas.height = 256;
+        const pen = canvas.getContext("2d");
+        pen.fillStyle = "#f4f1e8";
+        pen.fillRect(0, 0, 256, 256);
+        pen.drawImage(img, 0, 0, 256, 256);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  }
+
   function pagePoints() {
+    const when = viewedWhen();
+    const week = Math.max(1, GAME().weekNumber(when));
     const raw = ctx.points?.total || 0;
     const net = GAME().netPoints(state, raw);
-    const mult = state.chipThisWeek === "triple" ? "Triple captain is on." : state.chipThisWeek === "bench" ? "Bench Boost is on." : "";
-    shell(`
-      <div class="group fantasy-head"><div class="fantasy-bank"><strong>${net}</strong><span>gameweek after the ${GAME().hit(state)} point hit</span></div><div class="fantasy-bank"><strong>${GAME().records(state).total + net}</strong><span>season</span></div></div>
-      <p class="group-title">${esc(mult)} ${ctx.points?.benchBoost ? "Every player who played scores." : "Autosubs follow the bench order for a starter on 0 minutes."} Bonus on the sheet is included.</p>
-      <div class="group">${(ctx.points?.players || [])
-        .filter((player) => player.active || player.minutes)
-        .map((player) => `<div class="setting-row"><strong>${esc(player.name)}${player.doubled ? " ×" : ""}</strong><span>${player.points} pts</span></div>`)
-        .join("") || `<div class="empty">Points appear once a signed player has a match this week.</div>`}</div>
-      <div class="group">${(state.corrections || []).map((row) => `<div class="setting-row"><strong>${esc(row.note)}</strong><span>${row.value}</span></div>`).join("") || `<div class="empty">No points corrections.</div>`}</div>
-      <button type="button" class="mini-btn" id="correct">Add a points correction</button>
-    `);
-    ctx.list.querySelector("#correct").addEventListener("click", () => {
+    const season = GAME().records(state).total + (weekShift === 0 ? net : 0);
+    const past = (state.history || []).find((row) => row.week === CORE().weekKey(when));
+    const totalShown = weekShift === 0 ? net : past?.points ?? "–";
+    const shape = GAME().FORMATIONS[state.formation] || GAME().FORMATIONS["4-3-3"];
+    const xi = state.squad.filter((player) => player.xi);
+    const bench = state.squad.filter((player) => !player.xi);
+    const lines = ["G", "D", "M", "A"].map((slot) => {
+      const need = slot === "G" ? 1 : shape[slot] || 0;
+      const players = xi.filter((player) => player.slot === slot);
+      const cells = players.map((player) => shirtCard(player));
+      while (cells.length < need) cells.push(shirtCard(null));
+      return `<div class="gw-line" data-line="${slot}">${cells.join("")}</div>`;
+    });
+    const crest = state.badgeImage
+      ? `<img src="${esc(state.badgeImage)}" alt="" />`
+      : `<span class="gw-crest-mark" style="--badge:${BADGE_COLORS[(state.badgeColor || 0) % BADGE_COLORS.length]}"></span>`;
+    const listBody = ["G", "D", "M", "A"]
+      .map((slot) => {
+        const players = state.squad.filter((player) => player.slot === slot);
+        if (!players.length) return "";
+        return `<p class="gw-list-label">${SLOT_LABEL[slot]}</p><div class="gw-list">${players
+          .map((player) => {
+            const photo = faceOf(player);
+            return `<button type="button" class="gw-list-row" data-open="${esc(player.id)}">${ctx.faceMarkup(photo.url, player.name, "shirt-face", photo.fallback)}<span><strong>${esc(player.name)}${player.captain ? " (C)" : ""}${player.vice ? " (V)" : ""}</strong><small>${player.xi ? "Starting" : "Bench"} · ${esc(player.club || "")}</small></span><b>${esc(playerStat(player))}</b></button>`;
+          })
+          .join("")}</div>`;
+      })
+      .join("");
+    shell(
+      `
+      <div class="gw-screen">
+        <header class="gw-head">
+          <button type="button" class="gw-back" id="gw-back" aria-label="Back">‹</button>
+          <div class="gw-titles">
+            <h2>${esc(state.teamName || "Your team")}</h2>
+            <div class="gw-week">
+              <button type="button" data-shift="-1" aria-label="Previous gameweek">‹</button>
+              <span>Gameweek ${week}</span>
+              <button type="button" data-shift="1" aria-label="Next gameweek">›</button>
+            </div>
+          </div>
+          <div class="gw-crest">${crest}</div>
+        </header>
+        <div class="gw-scores">
+          <div><strong id="gw-avg">–</strong><span>Average</span></div>
+          <div class="gw-total"><strong>${esc(totalShown)}</strong><span>Total Pts</span></div>
+          <div><strong id="gw-high">–</strong><span>Highest</span></div>
+        </div>
+        <p class="gw-season">${season} this season${GAME().hit(state) && weekShift === 0 ? ` · hit -${GAME().hit(state)}` : ""}</p>
+        <div class="gw-tools">
+          <div class="gw-switch" role="tablist">
+            <button type="button" data-tab="pitch" class="${pointsTab === "pitch" ? "is-on" : ""}">Pitch</button>
+            <button type="button" data-tab="list" class="${pointsTab === "list" ? "is-on" : ""}">List</button>
+          </div>
+          <div class="gw-menu">
+            <button type="button" id="gw-stat" aria-expanded="false">${pointsStat === "price" ? "Price" : pointsStat === "fixture" ? "Fixture" : "Points"} ▾</button>
+            <div class="gw-menu-pop" id="gw-stat-pop" hidden>
+              <button type="button" data-stat="points">Points</button>
+              <button type="button" data-stat="fixture">Fixture</button>
+              <button type="button" data-stat="price">Price</button>
+            </div>
+          </div>
+        </div>
+        ${
+          pointsTab === "list"
+            ? `${listBody || `<div class="empty">Sign players to see them here.</div>`}
+               <div class="gw-extra"><button type="button" class="mini-btn" id="correct">Add a points correction</button></div>`
+            : `<div class="gw-pitch">
+                <div class="gw-sky"><span>Fantasy</span><i class="gw-goal"></i><span>Fantasy</span></div>
+                ${lines.join("")}
+              </div>
+              <div class="gw-bench">
+                ${
+                  bench.length
+                    ? bench
+                        .map(
+                          (player) => `<div class="gw-bench-slot"><span>${SLOT_LABEL[player.slot] || player.slot}</span>${shirtCard(player)}</div>`
+                        )
+                        .join("")
+                    : `<p class="gw-bench-empty">Bench is empty.</p>`
+                }
+              </div>`
+        }
+      </div>
+    `,
+      { bare: true }
+    );
+    ctx.list.querySelector("#gw-back")?.addEventListener("click", () => go("home"));
+    ctx.list.querySelectorAll("[data-shift]").forEach((button) => {
+      button.addEventListener("click", () => {
+        weekShift += Number(button.dataset.shift);
+        render(ctx);
+      });
+    });
+    ctx.list.querySelectorAll("[data-tab]").forEach((button) => {
+      button.addEventListener("click", () => {
+        pointsTab = button.dataset.tab;
+        render(ctx);
+      });
+    });
+    const pop = ctx.list.querySelector("#gw-stat-pop");
+    ctx.list.querySelector("#gw-stat")?.addEventListener("click", () => {
+      if (!pop) return;
+      pop.hidden = !pop.hidden;
+    });
+    ctx.list.querySelectorAll("[data-stat]").forEach((button) => {
+      button.addEventListener("click", () => {
+        pointsStat = button.dataset.stat;
+        render(ctx);
+      });
+    });
+    ctx.list.querySelectorAll("[data-open]").forEach((button) => {
+      button.addEventListener("click", () => {
+        focusId = button.dataset.open;
+        go("profile");
+      });
+    });
+    ctx.list.querySelector("#correct")?.addEventListener("click", () => {
       const note = window.prompt("Correction note");
       const value = Number(window.prompt("Points to add or remove", "0"));
       if (!note || !Number.isFinite(value)) return;
@@ -864,6 +1218,20 @@
       persist();
       render(ctx);
     });
+    loadPointsBoard(renderStamp);
+    queueFaces(renderStamp);
+  }
+
+  async function loadPointsBoard(stamp) {
+    const week = await fetch("/api/fantasy/rankings?sort=week").then((res) => res.json()).catch(() => ({ rankings: [] }));
+    if (stamp !== renderStamp || screen !== "points") return;
+    const scores = (week.rankings || []).map((row) => Number(row.weekPoints) || 0);
+    const average = scores.length ? Math.round(scores.reduce((sum, value) => sum + value, 0) / scores.length) : 0;
+    const highest = scores.length ? Math.max(...scores) : 0;
+    const averageNode = ctx.list.querySelector("#gw-avg");
+    const highNode = ctx.list.querySelector("#gw-high");
+    if (averageNode) averageNode.textContent = weekShift === 0 ? commas(average) : "–";
+    if (highNode) highNode.textContent = weekShift === 0 ? commas(highest) : "–";
   }
 
   function pageFixtures() {

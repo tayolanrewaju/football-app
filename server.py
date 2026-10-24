@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import mimetypes
 import os
@@ -229,6 +230,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.ai_status()
         if parsed.path == "/api/fantasy/quote":
             return self.fantasy_quote(parsed)
+        if parsed.path == "/api/fantasy/faces":
+            return self.fantasy_faces(parsed)
         if parsed.path == "/api/fantasy/players":
             return self.fantasy_players(parsed)
         if parsed.path == "/api/fantasy/league":
@@ -269,6 +272,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/auth/favorites": self.auth_favorites,
             "/api/auth/config": self.auth_config_save,
             "/api/ai/chat": self.ai_chat,
+            "/api/fantasy/badge": self.fantasy_badge,
             "/api/auth/verify/request": self.auth_verify_request,
             "/api/auth/verify": self.auth_verify,
             "/api/auth/reset/request": self.auth_reset_request,
@@ -419,6 +423,81 @@ class Handler(SimpleHTTPRequestHandler):
             )
         except Exception as err:  # noqa: BLE001
             return self.json_response({"error": str(err)}, 502)
+
+    def fantasy_faces(self, parsed):
+        params = urllib.parse.parse_qs(parsed.query or "")
+        raw = (params.get("names") or [""])[0]
+        names = [part.strip() for part in raw.split("|") if part.strip()]
+        try:
+            return self.json_response(fantasy_prices.faces_for(names))
+        except Exception as err:  # noqa: BLE001
+            return self.json_response({"faces": {}, "error": str(err)}, 502)
+
+    def fantasy_badge(self, body):
+        key = openai_api_key()
+        if not key:
+            return self.json_response(
+                {
+                    "error": "No OpenAI API key set. Add one in Account → ChatGPT / OpenAI, or set OPENAI_API_KEY.",
+                    "needsKey": True,
+                },
+                400,
+            )
+        name = " ".join(str(body.get("teamName") or "Fantasy").split())[:40] or "Fantasy"
+        club = " ".join(str(body.get("favouriteClub") or "").split())[:40]
+        prompt = (
+            "Design one football club crest as a single centered shield on a plain light background. "
+            f"The club is called {name}. "
+            "Flat vector style, bold shapes, thick outlines, high contrast, no people, no stadium, no mockup, no photorealism. "
+            "A short name or initials may sit inside the shield. "
+        )
+        prompt += f"Use a colour palette inspired by {club}. " if club else "Use deep navy, white, and gold. "
+        prompt += "It must stay recognisable at a very small size."
+        attempts = [
+            {"model": "gpt-image-1", "prompt": prompt, "size": "1024x1024", "n": 1},
+            {"model": "dall-e-3", "prompt": prompt, "size": "1024x1024", "n": 1, "response_format": "b64_json"},
+            {"model": "dall-e-2", "prompt": prompt, "size": "512x512", "n": 1, "response_format": "b64_json"},
+        ]
+        last_error = "OpenAI did not return an image."
+        for payload in attempts:
+            req = urllib.request.Request(
+                "https://api.openai.com/v1/images/generations",
+                data=json.dumps(payload).encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {key}",
+                    "User-Agent": "Derby/1.0",
+                },
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=90) as resp:
+                    data = json.loads(resp.read().decode())
+                image = self._badge_data_url(data)
+                if image:
+                    return self.json_response({"image": image, "model": payload["model"]})
+                last_error = "OpenAI returned an empty image."
+            except urllib.error.HTTPError as err:
+                last_error = err.read().decode(errors="ignore")[:400]
+                continue
+            except Exception as err:  # noqa: BLE001
+                last_error = str(err)
+                continue
+        return self.json_response({"error": f"Could not draw a badge. {last_error}"}, 502)
+
+    def _badge_data_url(self, data: dict) -> str:
+        item = (data.get("data") or [{}])[0]
+        blob = item.get("b64_json") or ""
+        if blob:
+            return f"data:image/png;base64,{blob}"
+        url = item.get("url") or ""
+        if not url:
+            return ""
+        req = urllib.request.Request(url, headers={"User-Agent": "Derby/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = resp.read()
+            mime = (resp.headers.get("Content-Type") or "image/png").split(";")[0]
+        return f"data:{mime};base64,{base64.b64encode(raw).decode()}"
 
     def auth_me(self):
         user = user_from_session(self.session_token())
