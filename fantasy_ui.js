@@ -4,7 +4,7 @@
   const CORE = () => root.NINETY_FANTASY;
   const PAGES = [
     ["home", "Home"],
-    ["team", "My team"],
+    ["team", "Pick Team"],
     ["transfers", "Transfers"],
     ["players", "Players"],
     ["points", "Points"],
@@ -30,6 +30,8 @@
   let weekShift = 0;
   let pointsTab = "pitch";
   let pointsStat = "points";
+  let pickTab = "pitch";
+  let pickStat = "fixture";
   let badgeBusy = false;
   let renderStamp = 0;
   let rulesLoaded = false;
@@ -165,6 +167,21 @@
     const parts = new Intl.DateTimeFormat("en-GB", {
       timeZone: "Europe/London",
       weekday: "long",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(ms));
+    const get = (type) => parts.find((part) => part.type === type)?.value || "";
+    return `${get("weekday")} ${get("day")} ${get("month")} at ${get("hour")}:${get("minute")}`;
+  }
+
+  function shortDeadline(ms) {
+    if (!ms) return "no kickoff yet";
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/London",
+      weekday: "short",
       day: "numeric",
       month: "short",
       hour: "2-digit",
@@ -460,33 +477,179 @@
     });
   }
 
+  function chipGlyph(kind) {
+    const art = {
+      bench: `<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#3b82f6" d="M24 4 41 14v20L24 44 7 34V14z"/><circle cx="18" cy="18" r="3" fill="#fff"/><circle cx="30" cy="19" r="3" fill="#dbeafe"/><path fill="#fff" d="M11.5 31.5c1.3-4.2 4.2-6.3 7.6-6.3 2.6 0 4.8 1.2 6.2 3.4-1.8 1.1-3 2.4-3.6 4-1.7-1.6-3.8-2.4-6.4-2.4-1.4 0-2.6.2-3.8.6z"/><path fill="#eff6ff" d="M25 30.2c1.2-3.2 3.4-5 6.4-5 3 0 5.4 1.8 6.6 5.4-1.6.7-3.8 1.2-6.4 1.2-2.6 0-4.8-.6-6.6-1.6z"/></svg>`,
+      triple: `<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="18" fill="#22d3ee"/><path d="M16 16.5a12.5 12.5 0 1 1 1.2 16.2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><path d="M14.2 14.2 16.4 19.2 11.6 18.2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="24" r="9" fill="#fff"/><path d="M27.2 19.2a6.2 6.2 0 1 0 .2 9.6" fill="none" stroke="#0891b2" stroke-width="2.3" stroke-linecap="round"/></svg>`,
+      wildcard: `<svg viewBox="0 0 48 48" aria-hidden="true"><rect x="8" y="10" width="22" height="30" rx="3" fill="#93c5fd" transform="rotate(-10 19 25)"/><rect x="17" y="8" width="22" height="30" rx="3" fill="#2563eb"/><path fill="#fff" d="m28 16.2 1.5 4.2h4.4l-3.5 2.6 1.3 4.2L28 24.6l-3.7 2.6 1.3-4.2-3.5-2.6h4.4z"/></svg>`,
+      freehit: `<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#a855f7" d="M24 5 42 24 24 19z"/><path fill="#38bdf8" d="M24 5 6 24 24 19z"/><path fill="#f59e0b" d="M6 24 24 43 24 27z"/><path fill="#fb7185" d="M42 24 24 43 24 27z"/></svg>`,
+    };
+    return art[kind] || art.bench;
+  }
+
+  function chipFace(id) {
+    if (state.chipThisWeek === id) return { text: "Playing", used: true };
+    const used = state.chips?.[id];
+    if (!used) return { text: "Play", used: false };
+    const week = GAME().weekNumber(new Date(`${used}T12:00:00Z`));
+    return { text: `Played in GW${week}`, used: true };
+  }
+
+  function startBenchPlayer(id) {
+    const player = state.squad.find((item) => item.id === id);
+    if (!player || player.xi) return;
+    const shape = GAME().FORMATIONS[state.formation];
+    const xi = state.squad.filter((item) => item.xi && item.slot === player.slot);
+    if (player.slot !== "G" && xi.length >= shape[player.slot]) {
+      const drop = xi[xi.length - 1];
+      drop.xi = false;
+    }
+    if (player.slot === "G") state.squad.filter((item) => item.slot === "G").forEach((item) => (item.xi = false));
+    player.xi = true;
+    GAME().logSub(state, `${player.name} moved into the XI.`);
+    persist();
+    render(ctx);
+  }
+
   function pageTeam() {
-    const bench = state.squad.filter((player) => !player.xi);
-    shell(`
-      <form class="team-search" id="team-name-form">
-        <input name="team" value="${esc(state.teamName)}" placeholder="Team name" />
-        <button class="search-go" type="submit">Save</button>
-      </form>
-      <div class="fantasy-nav">${Object.keys(GAME().FORMATIONS)
-        .map((shape) => `<button type="button" class="seg-btn ${state.formation === shape ? "is-on" : ""}" data-form="${shape}">${shape}</button>`)
-        .join("")}</div>
-      <p class="group-title">${esc(deadlineLine())} · ${state.squad.length}/15 · max ${GAME().CLUB_CAP} per club</p>
-      ${pitchHtml()}
-      <p class="group-title">Bench</p>
-      <div class="group">${bench
-        .map(
-          (player, index) => `<div class="setting-row"><strong>${esc(player.name)}</strong><span>
-            <button type="button" class="mini-btn" data-up="${index}">Up</button>
-            <button type="button" class="mini-btn" data-xi="${esc(player.id)}">Start</button>
-          </span></div>`
-        )
-        .join("") || `<div class="empty">Bench is empty.</div>`}</div>
-      <div class="group">${GAME().issues(state).map((note) => `<div class="setting-row"><span>${esc(note)}</span></div>`).join("") || `<div class="empty">Valid for this formation.</div>`}</div>
-      <div class="fantasy-actions"><button type="button" class="mini-btn" id="share-team" title="Copy a text team sheet">Share team</button></div>
-      <p class="group-title">Substitution history</p>
-      <div class="group">${(state.subLog || []).slice(0, 8).map((row) => `<div class="setting-row"><span>${esc(row.text)}</span></div>`).join("") || `<div class="empty">Bench changes are kept here.</div>`}</div>
-    `);
-    ctx.list.querySelector("#team-name-form").addEventListener("submit", (event) => {
+    const stamp = deadlineStamp();
+    const pickWhen = new Date();
+    const shape = GAME().FORMATIONS[state.formation] || GAME().FORMATIONS["4-3-3"];
+    const rank = { G: 0, D: 1, M: 2, A: 3 };
+    const xi = state.squad.filter((player) => player.xi);
+    const bench = state.squad.filter((player) => !player.xi).slice().sort((a, b) => (rank[a.slot] ?? 9) - (rank[b.slot] ?? 9));
+    const card = (player, extra) => shirtCard(player, { mode: pickStat, when: pickWhen, drag: true, ...extra });
+    const lines = ["G", "D", "M", "A"].map((slot) => {
+      const need = slot === "G" ? 1 : shape[slot] || 0;
+      const players = xi.filter((player) => player.slot === slot);
+      const cells = players.map((player) => card(player));
+      while (cells.length < need) cells.push(shirtCard(null));
+      return `<div class="gw-line" data-line="${slot}">${cells.join("")}</div>`;
+    });
+    const crest = state.badgeImage
+      ? `<img src="${esc(state.badgeImage)}" alt="" />`
+      : `<span class="gw-crest-mark" style="--badge:${BADGE_COLORS[(state.badgeColor || 0) % BADGE_COLORS.length]}"></span>`;
+    const wildcardId = GAME().weekNumber(pickWhen) <= 19 ? "wildcard1" : "wildcard2";
+    const chips = [
+      ["bench", "Bench Boost", "bench"],
+      ["triple", "Triple Captain", "triple"],
+      [wildcardId, "Wildcard", "wildcard"],
+      ["freehit", "Free Hit", "freehit"],
+    ];
+    const statName = pickStat === "price" ? "Price" : pickStat === "points" ? "Points" : "Opponent";
+    const opponentIcon = `<svg class="pick-opp" viewBox="0 0 20 16" aria-hidden="true"><rect x="0.5" y="3" width="11" height="12" rx="1.6" fill="#7c5cff"/><rect x="8" y="0.5" width="11" height="12" rx="1.6" fill="#3b82f6" stroke="#fff" stroke-width="1"/></svg>`;
+    const listBody = ["G", "D", "M", "A"]
+      .map((slot) => {
+        const players = state.squad.filter((player) => player.slot === slot);
+        if (!players.length) return "";
+        return `<p class="gw-list-label">${SLOT_LABEL[slot]}</p><div class="gw-list">${players
+          .map((player) => {
+            const photo = faceOf(player);
+            return `<div class="gw-list-row">${ctx.faceMarkup(photo.url, player.name, "shirt-face", photo.fallback)}<span><button type="button" class="gw-list-open" data-open="${esc(player.id)}"><strong>${esc(player.name)}${player.captain ? " (C)" : ""}${player.vice ? " (V)" : ""}</strong></button><small>${player.xi ? "Starting" : "Bench"} · ${esc(player.club || "")}</small>${player.xi ? "" : `<button type="button" class="mini-btn" data-xi="${esc(player.id)}">Start</button>`}</span><b>${esc(playerStat(player, pickStat, pickWhen))}</b></div>`;
+          })
+          .join("")}</div>`;
+      })
+      .join("");
+    const manage = `
+      <div class="pick-manage">
+        <form class="team-search" id="team-name-form">
+          <input name="team" value="${esc(state.teamName)}" placeholder="Team name" />
+          <button class="search-go" type="submit">Save</button>
+        </form>
+        <div class="fantasy-nav">${Object.keys(GAME().FORMATIONS)
+          .map((form) => `<button type="button" class="seg-btn ${state.formation === form ? "is-on" : ""}" data-form="${form}">${form}</button>`)
+          .join("")}</div>
+        <p class="group-title">${state.squad.length}/15 · max ${GAME().CLUB_CAP} per club · ${esc(state.formation)}</p>
+        ${listBody || `<div class="empty">Sign players to fill the pitch.</div>`}
+        <div class="group">${GAME().issues(state).map((note) => `<div class="setting-row"><span>${esc(note)}</span></div>`).join("") || `<div class="empty">Valid for this formation.</div>`}</div>
+        <div class="fantasy-actions"><button type="button" class="mini-btn" id="share-team" title="Copy a text team sheet">Share team</button></div>
+        <p class="group-title">Substitution history</p>
+        <div class="group">${(state.subLog || []).slice(0, 8).map((row) => `<div class="setting-row"><span>${esc(row.text)}</span></div>`).join("") || `<div class="empty">Bench changes are kept here.</div>`}</div>
+      </div>`;
+    shell(
+      `
+      <div class="gw-screen is-pick">
+        <header class="gw-head">
+          <button type="button" class="gw-back" id="pick-back" aria-label="Back">‹</button>
+          <div class="gw-titles"><h2>Pick Team</h2></div>
+          <div class="gw-crest">${crest}</div>
+        </header>
+        <p class="pick-deadline">Gameweek ${stamp.week} • Deadline: ${esc(stamp.deadline ? shortDeadline(stamp.deadline) : "no kickoff yet")}</p>
+        <div class="pick-chips">
+          ${chips
+            .map(([id, label, kind]) => {
+              const face = chipFace(id);
+              const status = face.used
+                ? `<span class="pick-chip-status">${esc(face.text)}</span>`
+                : `<button type="button" data-chip="${id}">Play</button>`;
+              return `<div class="pick-chip${face.used ? " is-used" : ""}">${chipGlyph(kind)}<strong>${esc(label)}</strong>${status}</div>`;
+            })
+            .join("")}
+        </div>
+        <div class="gw-tools">
+          <div class="gw-switch" role="tablist">
+            <button type="button" data-pick-tab="pitch" class="${pickTab === "pitch" ? "is-on" : ""}">Pitch</button>
+            <button type="button" data-pick-tab="list" class="${pickTab === "list" ? "is-on" : ""}">List</button>
+          </div>
+          <div class="gw-menu">
+            <button type="button" id="pick-stat" aria-expanded="false">${opponentIcon}${statName} ▾</button>
+            <div class="gw-menu-pop" id="pick-stat-pop" hidden>
+              <button type="button" data-pick-stat="fixture">Opponent</button>
+              <button type="button" data-pick-stat="points">Points</button>
+              <button type="button" data-pick-stat="price">Price</button>
+            </div>
+          </div>
+        </div>
+        ${
+          pickTab === "list"
+            ? manage
+            : `<div class="gw-pitch">
+                <div class="gw-sky"><span>Fantasy</span><i class="gw-goal"></i><span>Fantasy</span></div>
+                ${lines.join("")}
+              </div>
+              <div class="gw-bench">
+                ${
+                  bench.length
+                    ? bench.map((player) => `<div class="gw-bench-slot"><span>${SLOT_LABEL[player.slot] || player.slot}</span>${card(player, { bench: true })}</div>`).join("")
+                    : `<p class="gw-bench-empty">Bench is empty.</p>`
+                }
+              </div>`
+        }
+      </div>
+    `,
+      { bare: true }
+    );
+    ctx.list.querySelector("#pick-back")?.addEventListener("click", () => go("home"));
+    ctx.list.querySelectorAll("[data-pick-tab]").forEach((button) => {
+      button.addEventListener("click", () => {
+        pickTab = button.dataset.pickTab;
+        render(ctx);
+      });
+    });
+    const pop = ctx.list.querySelector("#pick-stat-pop");
+    ctx.list.querySelector("#pick-stat")?.addEventListener("click", () => {
+      if (!pop) return;
+      const open = pop.hidden;
+      pop.hidden = !open;
+      ctx.list.querySelector("#pick-stat")?.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    ctx.list.querySelectorAll("[data-pick-stat]").forEach((button) => {
+      button.addEventListener("click", () => {
+        pickStat = button.dataset.pickStat;
+        render(ctx);
+      });
+    });
+    ctx.list.querySelectorAll("[data-chip]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const name = chipName(button.dataset.chip).replace(", first half", "").replace(", second half", "");
+        if (!window.confirm(`Play ${name} this gameweek?`)) return;
+        const error = GAME().playChip(state, button.dataset.chip, ctx.matches || []);
+        if (error) window.alert(error);
+        persist();
+        render(ctx);
+      });
+    });
+    ctx.list.querySelector("#team-name-form")?.addEventListener("submit", (event) => {
       event.preventDefault();
       state.teamName = new FormData(event.target).get("team").toString();
       state.built = state.squad.length >= 15 || state.built;
@@ -501,41 +664,13 @@
         render(ctx);
       });
     });
-    ctx.list.querySelectorAll("[data-up]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const benchIds = state.squad.filter((player) => !player.xi);
-        const index = Number(button.dataset.up);
-        if (index <= 0) return;
-        const ids = benchIds.map((player) => player.id);
-        const swap = ids[index - 1];
-        ids[index - 1] = ids[index];
-        ids[index] = swap;
-        const benchSet = new Set(ids);
-        const starters = state.squad.filter((player) => !benchSet.has(player.id));
-        const ordered = ids.map((id) => state.squad.find((player) => player.id === id));
-        state.squad = [...starters, ...ordered];
-        persist();
-        render(ctx);
-      });
-    });
     ctx.list.querySelectorAll("[data-xi]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const player = state.squad.find((item) => item.id === button.dataset.xi);
-        if (!player) return;
-        const shape = GAME().FORMATIONS[state.formation];
-        const xi = state.squad.filter((item) => item.xi && item.slot === player.slot);
-        if (player.slot !== "G" && xi.length >= shape[player.slot]) {
-          const drop = xi[xi.length - 1];
-          drop.xi = false;
-        }
-        if (player.slot === "G") state.squad.filter((item) => item.slot === "G").forEach((item) => (item.xi = false));
-        player.xi = true;
-        GAME().logSub(state, `${player.name} moved into the XI.`);
-        persist();
-        render(ctx);
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        startBenchPlayer(button.dataset.xi);
       });
     });
-    ctx.list.querySelector("#share-team").addEventListener("click", async () => {
+    ctx.list.querySelector("#share-team")?.addEventListener("click", async () => {
       const lines = [`${state.teamName || "Fantasy"} · ${state.formation}`, ...state.squad.map((player) => `${player.xi ? "XI" : "Bench"} ${player.slot} ${player.name}${player.captain ? " (C)" : ""}${player.vice ? " (V)" : ""}`)];
       const text = lines.join("\n");
       try {
@@ -943,17 +1078,17 @@
     return new Date(Date.parse(`${CORE().weekKey()}T12:00:00Z`) + weekShift * 7 * 86400000);
   }
 
-  function fixtureText(player) {
-    const info = GAME().difficulty(ctx.matches || [], player.club, viewedWhen());
+  function fixtureText(player, when = viewedWhen()) {
+    const info = GAME().difficulty(ctx.matches || [], player.club, when);
     const game = info.fixtures?.[0];
     if (!game) return "—";
     return `${shortClub(game.opponent)} (${game.atHome ? "H" : "A"})`;
   }
 
-  function playerStat(player) {
-    if (pointsStat === "price") return ctx.money(player.price);
-    if (pointsStat === "fixture") return fixtureText(player);
-    if (weekShift !== 0) return "–";
+  function playerStat(player, mode = pointsStat, when) {
+    if (mode === "price") return ctx.money(player.price);
+    if (mode === "fixture") return fixtureText(player, when);
+    if (weekShift !== 0 && screen === "points") return "–";
     const scored = (ctx.points?.players || []).find((item) => item.id === player.id);
     return String(scored ? scored.points : 0);
   }
@@ -972,7 +1107,7 @@
     return usable[usable.length - 1] || parts[parts.length - 1];
   }
 
-  function shirtCard(player) {
+  function shirtCard(player, options = {}) {
     if (!player) {
       return `<div class="shirt-card is-empty" aria-hidden="true"><span class="shirt-photo"></span><span class="shirt-name"></span><span class="shirt-sub"></span></div>`;
     }
@@ -980,12 +1115,15 @@
     const color = clubColor(player.club);
     const flagged = ["injured", "suspended", "unavailable", "doubt"].includes(player.status);
     const mark = player.captain ? `<span class="shirt-mark">C</span>` : player.vice ? `<span class="shirt-mark is-v">V</span>` : "";
-    return `<button type="button" class="shirt-card" data-open="${esc(player.id)}">
+    const mode = options.mode || pointsStat;
+    const action = options.bench ? `data-xi="${esc(player.id)}"` : `data-open="${esc(player.id)}"`;
+    const drag = options.drag ? ` draggable="true" data-drag="${esc(player.id)}"` : "";
+    return `<button type="button" class="shirt-card" ${action}${drag}>
       ${mark}
       ${flagged ? `<span class="shirt-flag" title="${esc(player.status)}">!</span>` : ""}
       <span class="shirt-photo">${ctx.faceMarkup(photo.url, player.name, "shirt-face", photo.fallback)}</span>
       <span class="shirt-name" style="background:${color};color:${inkFor(color)}">${esc(lastName(player.name))}</span>
-      <span class="shirt-sub">${esc(playerStat(player))}</span>
+      <span class="shirt-sub">${esc(playerStat(player, mode, options.when))}</span>
     </button>`;
   }
 
@@ -1775,7 +1913,7 @@
   root.NINETY_FANTASY_UI = {
     render,
     screen: () => screen,
-    title: () => ({ compare: "Compare", h2h: "Head to head", cup: "Cup", draft: "Draft", planner: "Planner", admin: "Admin", alerts: "Notifications", season: "Season", profile: "Player", league: "League", pick: "Pick team", prices: "Price Changes", pieces: "Set Piece Takers", more: "More" }[screen] || PAGES.find((page) => page[0] === screen)?.[1] || "Fantasy"),
+    title: () => ({ compare: "Compare", h2h: "Head to head", cup: "Cup", draft: "Draft", planner: "Planner", admin: "Admin", alerts: "Notifications", season: "Season", profile: "Player", league: "League", pick: "Pick Team", prices: "Price Changes", pieces: "Set Piece Takers", more: "More" }[screen] || PAGES.find((page) => page[0] === screen)?.[1] || "Fantasy"),
     back() {
       if (screen === "home") return false;
       screen = screen === "profile" || screen === "league" || screen === "h2h" || screen === "cup" ? "home" : "home";
