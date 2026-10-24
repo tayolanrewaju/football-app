@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import secrets
 import time
@@ -14,6 +15,8 @@ import uuid
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 PORT = int(os.environ.get("PORT", "4173"))
 ROOT = Path(__file__).resolve().parent
