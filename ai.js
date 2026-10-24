@@ -1,6 +1,4 @@
 (function () {
-  const DATA = () => window.NINETY_DATA;
-
   function normalize(text) {
     return String(text || "")
       .toLowerCase()
@@ -14,123 +12,255 @@
     return needles.some((n) => hay.includes(n));
   }
 
-  function findTeam(q) {
-    return DATA().teams.find((t) => q.includes(normalize(t.name)) || q.includes(normalize(t.short)));
-  }
-
-  function findPlayer(q) {
-    const pool = [
-      ...DATA().transfers.map((t) => t.player),
-      ...DATA().teams.flatMap((t) => t.lineup?.xi || []),
-    ];
-    const unique = [...new Set(pool)];
+  function findTeam(q, teams) {
+    const list = teams || [];
     return (
-      unique.find((name) => q.includes(normalize(name))) ||
-      unique.find((name) => normalize(name).split(" ").some((part) => part.length > 3 && q.includes(part)))
+      list.find((t) => q.includes(normalize(t.name))) ||
+      list.find((t) => t.short && q.includes(normalize(t.short))) ||
+      list.find((t) => normalize(t.name).split(" ").some((p) => p.length > 3 && q.includes(p)))
     );
   }
 
   function transferLines(list) {
     return list
-      .map((t) => `• ${t.player}: ${t.from} → ${t.to} (${t.fee}, ${t.status}) — ${t.note}`)
+      .map((t) => `• ${t.player}: ${t.from} → ${t.to} (${t.fee}, ${t.status}, ${t.window}) — ${t.note}`)
       .join("\n");
   }
 
-  function answerQuestion(raw, ctx = {}) {
-    const q = normalize(raw);
-    if (!q) {
-      return { text: "Ask me anything football — live scores, transfers, lineups, or your favourites.", source: "NINETY AI" };
-    }
+  function scoreLines(list) {
+    return list
+      .slice(0, 10)
+      .map((m) => {
+        const score = m.status === "Upcoming" ? "vs" : `${m.homeScore}-${m.awayScore}`;
+        const clock = m.status === "Live" ? ` ${m.minute || "Live"}` : ` · ${m.kickoff || m.status}`;
+        return `• ${m.home} ${score} ${m.away}${clock}`;
+      })
+      .join("\n");
+  }
 
+  function buildContext(ctx = {}) {
+    const matches = ctx.matches || [];
     const favorites = ctx.favorites || [];
-    const team = findTeam(q);
-    const player = findPlayer(q);
+    const transfers = ctx.transfers || window.NINETY_DATA?.transfers || [];
+    const liveNow = matches.filter((m) => m.status === "Live").slice(0, 8);
+    const upcoming = matches.filter((m) => m.status === "Upcoming").slice(0, 10);
+    const bits = [];
+    if (favorites.length) bits.push(`Favourites: ${favorites.join(", ")}`);
+    if (liveNow.length) bits.push(`Live scores:\n${scoreLines(liveNow)}`);
+    if (upcoming.length) bits.push(`Upcoming:\n${scoreLines(upcoming)}`);
+    if (transfers.length) bits.push(`Transfer board:\n${transferLines(transfers.slice(0, 8))}`);
+    return bits.join("\n\n");
+  }
 
-    if (includesAny(q, ["hello", "hi ", "hey", "who are you", "what can you"])) {
-      return {
-        text: "I'm NINETY AI. Ask about live scores across the big five + UCL, European transfers, club lineups, or your favourites' form.",
-        source: "NINETY AI",
-      };
+  async function askChatGPT(raw, ctx = {}) {
+    const res = await fetch("/api/ai/chat", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        question: String(raw || "").trim(),
+        context: buildContext(ctx),
+      }),
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
     }
-
-    if (includesAny(q, ["live", "score", "scores", "fixture", "fixtures", "match", "matches", "tonight"])) {
-      let list = DATA().matches.filter((m) => m.status === "Live" || m.status === "Upcoming");
-      if (includesAny(q, ["live"])) list = DATA().matches.filter((m) => m.status === "Live");
-      if (team) list = DATA().matches.filter((m) => m.home === team.name || m.away === team.name);
-      if (!list.length) return { text: "No matches match that filter right now.", source: "Scores" };
-      const lines = list
-        .slice(0, 10)
-        .map((m) => {
-          const league = DATA().leagueById[m.league]?.name || m.league;
-          const score =
-            m.status === "Upcoming" ? "vs" : `${m.homeScore ?? 0}-${m.awayScore ?? 0}`;
-          const clock = m.status === "Live" ? ` ${m.minute}'` : ` ${m.status}`;
-          return `• [${league}] ${m.home} ${score} ${m.away}${clock}`;
-        })
-        .join("\n");
-      return { text: `Scores:\n${lines}`, source: "Scores" };
+    if (!res.ok) {
+      const err = new Error((data && data.error) || `ChatGPT request failed (${res.status})`);
+      err.needsKey = !!(data && data.needsKey);
+      throw err;
     }
-
-    if (includesAny(q, ["transfer", "signing", "deal", "rumour", "rumor", "move"])) {
-      let list = DATA().transfers;
-      if (team) list = list.filter((t) => t.from === team.name || t.to === team.name);
-      if (includesAny(q, ["big", "biggest", "season"])) {
-        list = [...list].sort((a, b) => {
-          const rank = (s) => (s === "Completed" ? 2 : s === "Hot" ? 1 : 0);
-          return rank(b.status) - rank(a.status);
-        });
-      }
-      return { text: `Europe transfers:\n${transferLines(list.slice(0, 8))}`, source: "Transfers" };
-    }
-
-    if (team && includesAny(q, ["lineup", "line up", "xi", "formation", "squad", "about", "info", "tell me"])) {
-      const xi = (team.lineup?.xi || []).join(", ");
-      const form = (team.form || []).join("-");
-      return {
-        text: `${team.name} (${DATA().leagueById[team.league]?.name})\nManager: ${team.manager}\nStadium: ${team.stadium}\nFormation: ${team.lineup?.formation}\nXI: ${xi}\nForm: ${form}\n${team.about}`,
-        source: "Teams",
-      };
-    }
-
-    if (includesAny(q, ["form", "favourite", "favorite", "following", "my team"])) {
-      if (!favorites.length) {
-        return { text: "Star clubs in Favourites and I'll summarise their last five games.", source: "Favourites" };
-      }
-      const lines = favorites
-        .map((name) => {
-          const t = DATA().teamByName[name] || DATA().teams.find((x) => x.name === name);
-          if (!t) return `• ${name}`;
-          const last = (t.lastFive || [])
-            .map((g) => `${g.result} ${g.score} vs ${g.opp}`)
-            .join(", ");
-          return `• ${t.name}: ${(t.form || []).join("-")} — ${last}`;
-        })
-        .join("\n");
-      return { text: `Your favourites:\n${lines}`, source: "Favourites" };
-    }
-
-    if (player) {
-      const t = DATA().transfers.find((x) => normalize(x.player).includes(normalize(player)));
-      if (t) return { text: transferLines([t]), source: "Transfers" };
-      const club = DATA().teams.find((tm) => (tm.lineup?.xi || []).some((p) => normalize(p).includes(normalize(player))));
-      if (club) {
-        return { text: `${player} is in the ${club.name} squad (${club.lineup.formation}). ${club.about}`, source: "Teams" };
-      }
-    }
-
-    if (team) {
-      return {
-        text: `${team.name}: ${team.about}\nForm ${(team.form || []).join("-")}. Ask for their lineup for the XI.`,
-        source: "Teams",
-      };
-    }
-
-    const tip = DATA().facts[Math.floor(Math.random() * DATA().facts.length)];
     return {
-      text: `Try “live scores”, “biggest transfers”, “Arsenal lineup”, or “my form”.\n\nFact: ${tip}`,
-      source: "NINETY AI",
+      text: data.text,
+      source: data.source || "ChatGPT",
+      model: data.model,
     };
   }
 
-  window.NINETY_AI = { answerQuestion, normalize };
+  async function researchLocal(raw, ctx = {}) {
+    const q = normalize(raw);
+    const favorites = ctx.favorites || [];
+    const matches = ctx.matches || [];
+    const teams = ctx.teams || [];
+    const transfers = ctx.transfers || window.NINETY_DATA?.transfers || [];
+    const API = window.NINETY_API;
+    const notes = [];
+
+    if (!q) {
+      return {
+        text: "Ask me anything football — with ChatGPT connected I’ll answer faster and smarter. Add your OpenAI API key in Account.",
+        source: "Derby AI",
+      };
+    }
+
+    const wantsLive = includesAny(q, ["live", "score", "scores", "fixture", "fixtures", "match", "matches", "playing", "upcoming", "next game", "kickoff"]);
+    const wantsTransfers = includesAny(q, ["transfer", "signing", "window", "deal", "rumour", "rumor", "buy", "sold", "fee"]);
+    const wantsSquad = includesAny(q, ["lineup", "squad", "roster", "xi", "players", "coach", "manager", "form", "about", "tell me"]);
+    const wantsFavs = includesAny(q, ["favourite", "favorite", "following", "my team", "my clubs"]);
+
+    let team = findTeam(q, teams);
+    let searched = [];
+    if (!team && API?.searchTeams) {
+      const tokens = q
+        .replace(/\b(tell me about|what about|how is|who's|who is|show|squad|lineup|form|transfers?|of|the|a|an)\b/g, " ")
+        .trim()
+        .split(/\s+/)
+        .filter((t) => t.length > 2);
+      const guess = tokens.slice(0, 3).join(" ");
+      if (guess) {
+        try {
+          searched = await API.searchTeams(guess);
+          if (searched.length) {
+            team = searched[0];
+            notes.push(`world club search (“${guess}”)`);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    let detail = null;
+    let roster = null;
+    let schedule = null;
+    if (team && (wantsSquad || wantsLive || wantsTransfers || includesAny(q, ["who", "what", "how"]))) {
+      try {
+        const slug = team.slug || "eng.1";
+        const id = team.espnId || team.id;
+        [detail, roster, schedule] = await Promise.all([
+          API.loadTeamDetail(slug, id),
+          API.loadRoster(slug, id),
+          API.loadSchedule(slug, id),
+        ]);
+        notes.push("club profile", "roster feed", "schedule/form feed");
+      } catch {
+        notes.push("club feeds partially unavailable");
+      }
+    }
+
+    const sections = [];
+
+    if (includesAny(q, ["hello", "hi", "hey", "who are you", "help"])) {
+      return {
+        text: "I’m Derby Ask AI. Connect ChatGPT in Account for the best answers — otherwise I still check live ESPN scores, clubs, and the 2027 board.",
+        source: "Derby AI",
+      };
+    }
+
+    if (wantsLive || (!wantsTransfers && !wantsSquad && !wantsFavs && team)) {
+      let list = matches.slice();
+      if (includesAny(q, ["live"])) list = list.filter((m) => m.status === "Live");
+      else if (includesAny(q, ["upcoming", "next", "coming"])) {
+        list = list.filter((m) => m.status === "Upcoming" || m.status === "Live");
+      }
+      if (team) {
+        const local = matches.filter((m) => m.home === team.name || m.away === team.name);
+        const fromSchedule = schedule?.upcoming || [];
+        list = local.length ? local : fromSchedule;
+        if (!list.length && schedule?.lastFive?.length) {
+          sections.push(
+            `Recent ${team.name} results:\n` +
+              schedule.lastFive.map((g) => `• ${g.home ? "vs" : "@"} ${g.opp} ${g.score} (${g.result})`).join("\n")
+          );
+        }
+      }
+      if (list.length) {
+        sections.push(`${team ? `${team.name} fixtures` : "Fixtures I’m seeing"}:\n${scoreLines(list)}`);
+        notes.push("live/upcoming scoreboard");
+      }
+    }
+
+    if (wantsTransfers || includesAny(q, ["2027", "summer", "january", "jan"])) {
+      let list = transfers.slice();
+      if (team) {
+        const name = normalize(team.name);
+        list = list.filter(
+          (t) =>
+            normalize(t.from).includes(name) ||
+            normalize(t.to).includes(name) ||
+            name.includes(normalize(t.from)) ||
+            name.includes(normalize(t.to))
+        );
+      }
+      if (!list.length) list = transfers.slice(0, 8);
+      sections.push(`2027-window transfer board:\n${transferLines(list.slice(0, 8))}`);
+      notes.push("2027 transfer database");
+    }
+
+    if (team && (wantsSquad || sections.length === 0)) {
+      const bits = [`Here’s what I found on ${team.name}:`];
+      if (detail?.record) bits.push(`• Record: ${detail.record}${detail.points != null ? ` · ${detail.points} pts` : ""}`);
+      if (detail?.standingSummary) bits.push(`• ${detail.standingSummary}`);
+      if (schedule?.form?.length) bits.push(`• Form: ${schedule.form.join("-")}`);
+      if (roster?.coach) bits.push(`• Coach: ${roster.coach}`);
+      if (roster?.players?.length) {
+        bits.push(
+          `• Squad sample: ${roster.players
+            .slice(0, 11)
+            .map((p) => (p.number ? `#${p.number} ` : "") + p.name)
+            .join(", ")}`
+        );
+      }
+      if (team.label || team.league) bits.push(`• Competition context: ${team.label || team.league}`);
+      sections.push(bits.join("\n"));
+    }
+
+    if (wantsFavs) {
+      if (!favorites.length) {
+        sections.push("Your favourites list is empty — star clubs in Teams and I’ll personalise scores and transfers.");
+      } else {
+        sections.push(`You’re following: ${favorites.join(", ")}.`);
+        const favMatches = matches.filter((m) => favorites.includes(m.home) || favorites.includes(m.away));
+        if (favMatches.length) sections.push(`Favourites’ slate:\n${scoreLines(favMatches)}`);
+        notes.push("favourites graph");
+      }
+    }
+
+    if (!sections.length) {
+      const liveNow = matches.filter((m) => m.status === "Live").slice(0, 5);
+      const upcoming = matches.filter((m) => m.status === "Upcoming").slice(0, 5);
+      if (liveNow.length) sections.push(`Live right now:\n${scoreLines(liveNow)}`);
+      if (upcoming.length) sections.push(`Coming up:\n${scoreLines(upcoming)}`);
+      sections.push(`On the 2027 board:\n${transferLines(transfers.slice(0, 5))}`);
+      if (searched.length) {
+        sections.push(`World search hits: ${searched.slice(0, 5).map((t) => t.name).join(", ")}`);
+      }
+      notes.push("multi-source sweep");
+    }
+
+    const footer = notes.length ? `\n\nSources checked: ${[...new Set(notes)].join(", ")}.` : "";
+    return {
+      text: sections.join("\n\n") + footer,
+      source: "Derby AI",
+    };
+  }
+
+  async function research(raw, ctx = {}) {
+    try {
+      return await askChatGPT(raw, ctx);
+    } catch (err) {
+      const local = await researchLocal(raw, ctx);
+      if (err.needsKey) {
+        return {
+          text: `${local.text}\n\n—\nChatGPT isn’t connected yet. Open Account → paste your OpenAI API key to route Ask AI through ChatGPT for better answers.`,
+          source: local.source,
+        };
+      }
+      return {
+        text: `${local.text}\n\n—\nChatGPT fallback: ${err.message || err}`,
+        source: local.source,
+      };
+    }
+  }
+
+  function answerQuestion(raw) {
+    const q = normalize(raw);
+    if (!q) return { text: "Ask me anything football.", source: "Derby AI" };
+    return { text: "Thinking…", source: "Derby AI", async: true };
+  }
+
+  window.NINETY_AI = { answerQuestion, research, askChatGPT, normalize, findTeam };
 })();

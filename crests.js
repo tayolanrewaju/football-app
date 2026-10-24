@@ -1,59 +1,63 @@
 (function () {
-  const SHIELD = "M40 7 L67 17 V48 C67 66 55 80 40 90 C25 80 13 66 13 48 V17 Z";
+  const OUTER = "M40 1.2 L77 15 V52 C77 75 59 91 40 99.2 C21 91 3 75 3 52 V15 Z";
+  const GOLD = "M40 4 L73.5 16.6 V52 C73.5 72.5 57.2 87.2 40 95.6 C22.8 87.2 6.5 72.5 6.5 52 V16.6 Z";
+  const INNER = "M40 7.2 L70 18.4 V52 C70 69.8 55.4 83.6 40 92.2 C24.6 83.6 10 69.8 10 52 V18.4 Z";
   let seq = 0;
 
-  const STYLE = {
-    arsenal: { secondary: "#ffffff", pattern: "bars" },
-    liverpool: { secondary: "#ffffff", pattern: "band" },
-    mancity: { secondary: "#ffffff", pattern: "bars" },
-    chelsea: { secondary: "#ffffff", pattern: "bars" },
-    tottenham: { secondary: "#ffffff", pattern: "band" },
-    manutd: { secondary: "#f5d76e", pattern: "stripes" },
-    newcastle: { secondary: "#ffffff", pattern: "stripes" },
-    realmadrid: { secondary: "#c9a227", pattern: "bars" },
-    barcelona: { secondary: "#004d98", pattern: "stripes" },
-    atletico: { secondary: "#ffffff", pattern: "stripes" },
-    inter: { secondary: "#111111", pattern: "stripes" },
-    milan: { secondary: "#111111", pattern: "stripes" },
-    juventus: { secondary: "#ffffff", pattern: "stripes" },
-    napoli: { secondary: "#ffffff", pattern: "band" },
-    bayern: { secondary: "#ffffff", pattern: "band" },
-    dortmund: { secondary: "#111111", pattern: "stripes" },
-    leverkusen: { secondary: "#111111", pattern: "stripes" },
-    psg: { secondary: "#e30613", pattern: "bars" },
-    marseille: { secondary: "#ffffff", pattern: "band" },
-    monaco: { secondary: "#ffffff", pattern: "split" },
-  };
-
-  const EXTRAS = {
-    Bournemouth: { primary: "#d71920", secondary: "#111111", pattern: "stripes", label: "BOU" },
-    Brighton: { primary: "#0057b8", secondary: "#ffffff", pattern: "bars", label: "BHA" },
-    "West Ham": { primary: "#7a263a", secondary: "#7fd3f2", pattern: "bars", label: "WHU" },
-    Wolves: { primary: "#fdb913", secondary: "#111111", pattern: "stripes", label: "WOL" },
-    "Aston Villa": { primary: "#670e36", secondary: "#95bfe5", pattern: "bars", label: "AVL" },
-    Fulham: { primary: "#ffffff", secondary: "#111111", pattern: "stripes", label: "FUL" },
-    Sevilla: { primary: "#ffffff", secondary: "#d00027", pattern: "bars", label: "SEV" },
-    "Real Sociedad": { primary: "#0056a8", secondary: "#ffffff", pattern: "band", label: "RSO" },
-    Villarreal: { primary: "#ffe000", secondary: "#0055a5", pattern: "band", label: "VIL" },
-    Roma: { primary: "#8e1f2f", secondary: "#f0bc42", pattern: "band", label: "ROM" },
-    Atalanta: { primary: "#1e1b4b", secondary: "#111111", pattern: "stripes", label: "ATA" },
-    "RB Leipzig": { primary: "#dd0741", secondary: "#ffffff", pattern: "band", label: "RBL" },
-    Frankfurt: { primary: "#e1000f", secondary: "#111111", pattern: "stripes", label: "SGE" },
-    Stuttgart: { primary: "#ffffff", secondary: "#e32219", pattern: "bars", label: "VFB" },
-    Lyon: { primary: "#ffffff", secondary: "#0033a0", pattern: "bars", label: "OL" },
-    Lille: { primary: "#e30613", secondary: "#ffffff", pattern: "band", label: "LIL" },
-    Nice: { primary: "#111111", secondary: "#e30613", pattern: "stripes", label: "NIC" },
-    Spurs: { alias: "Tottenham" },
+  const NAMED = {
+    arsenal: { primary: "#db0007", secondary: "#ffffff", accent: "#9c824a", pattern: "bars", label: "ARSENAL" },
+    bournemouth: { primary: "#d71920", secondary: "#111111", accent: "#f4e4a8", pattern: "stripes", label: "AFCB" },
+    afcbournemouth: { alias: "bournemouth" },
+    ukraine: { primary: "#0057b8", secondary: "#ffd100", accent: "#ffd100", pattern: "band", label: "UKRAINE" },
+    brazil: { primary: "#009c3b", secondary: "#ffdf00", accent: "#002776", pattern: "cross", label: "BRASIL" },
+    brasil: { alias: "brazil" },
+    liverpool: { primary: "#c8102e", secondary: "#ffffff", accent: "#f4e4a8", pattern: "band", label: "LFC" },
+    mancity: { primary: "#6cabdd", secondary: "#ffffff", accent: "#1c2c5b", pattern: "bars", label: "CITY" },
+    manchestercity: { alias: "mancity" },
+    manchesterunited: { primary: "#da291c", secondary: "#f4e4a8", accent: "#111111", pattern: "stripes", label: "MUFC" },
+    manunited: { alias: "manchesterunited" },
+    manutd: { alias: "manchesterunited" },
+    chelsea: { primary: "#034694", secondary: "#ffffff", accent: "#f4e4a8", pattern: "bars", label: "CFC" },
+    tottenham: { primary: "#132257", secondary: "#ffffff", accent: "#f4e4a8", pattern: "band", label: "SPURS" },
+    spurs: { alias: "tottenham" },
+    newcastle: { primary: "#241f20", secondary: "#ffffff", accent: "#f4e4a8", pattern: "stripes", label: "NUFC" },
+    realmadrid: { primary: "#ffffff", secondary: "#c9a227", accent: "#111111", pattern: "bars", label: "MADRID" },
+    barcelona: { primary: "#a50044", secondary: "#004d98", accent: "#f4e4a8", pattern: "stripes", label: "BARCA" },
+    atletico: { primary: "#cb3524", secondary: "#ffffff", accent: "#272e61", pattern: "stripes", label: "ATLETI" },
+    atleticomadrid: { alias: "atletico" },
+    inter: { primary: "#010e80", secondary: "#111111", accent: "#f4e4a8", pattern: "stripes", label: "INTER" },
+    intermilan: { alias: "inter" },
+    milan: { primary: "#fb090b", secondary: "#111111", accent: "#f4e4a8", pattern: "stripes", label: "MILAN" },
+    acmilan: { alias: "milan" },
+    juventus: { primary: "#111111", secondary: "#ffffff", accent: "#f4e4a8", pattern: "stripes", label: "JUVE" },
+    napoli: { primary: "#12a0d7", secondary: "#ffffff", accent: "#f4e4a8", pattern: "band", label: "NAPOLI" },
+    bayern: { primary: "#dc052d", secondary: "#ffffff", accent: "#f4e4a8", pattern: "band", label: "BAYERN" },
+    bayernmunich: { alias: "bayern" },
+    dortmund: { primary: "#fde100", secondary: "#111111", accent: "#111111", pattern: "stripes", label: "BVB" },
+    borussiadortmund: { alias: "dortmund" },
+    leverkusen: { primary: "#e32221", secondary: "#111111", accent: "#f4e4a8", pattern: "stripes", label: "B04" },
+    bayerleverkusen: { alias: "leverkusen" },
+    psg: { primary: "#004170", secondary: "#da1834", accent: "#f4e4a8", pattern: "bars", label: "PSG" },
+    parissaintgermain: { alias: "psg" },
+    marseille: { primary: "#2faee0", secondary: "#ffffff", accent: "#f4e4a8", pattern: "band", label: "OM" },
+    monaco: { primary: "#e30613", secondary: "#ffffff", accent: "#f4e4a8", pattern: "split", label: "ASM" },
+    brighton: { primary: "#0057b8", secondary: "#ffffff", accent: "#f4e4a8", pattern: "bars", label: "BHA" },
+    westham: { primary: "#7a263a", secondary: "#7fd3f2", accent: "#f4e4a8", pattern: "bars", label: "WHU" },
+    wolves: { primary: "#fdb913", secondary: "#111111", accent: "#111111", pattern: "stripes", label: "WOLVES" },
+    astonvilla: { primary: "#670e36", secondary: "#95bfe5", accent: "#f4e4a8", pattern: "bars", label: "VILLA" },
+    fulham: { primary: "#ffffff", secondary: "#111111", accent: "#111111", pattern: "stripes", label: "FUL" },
   };
 
   const LEAGUES = {
-    pl: { primary: "#c8102e", secondary: "#ffffff", pattern: "split", label: "ENG" },
-    ll: { primary: "#c60b1e", secondary: "#ffc400", pattern: "band", label: "ESP" },
-    sa: { primary: "#008c45", secondary: "#ffffff", pattern: "bars", label: "ITA" },
-    bl: { primary: "#111111", secondary: "#dd0000", pattern: "band", label: "GER" },
-    l1: { primary: "#0055a4", secondary: "#ffffff", pattern: "bars", label: "FRA" },
-    ucl: { primary: "#0b1f3a", secondary: "#f0d78c", pattern: "band", label: "UCL" },
+    pl: { primary: "#c8102e", secondary: "#ffffff", accent: "#f4e4a8", pattern: "bars", label: "ENG" },
+    ll: { primary: "#c60b1e", secondary: "#ffc400", accent: "#f4e4a8", pattern: "band", label: "ESP" },
+    sa: { primary: "#008c45", secondary: "#ffffff", accent: "#f4e4a8", pattern: "bars", label: "ITA" },
+    bl: { primary: "#111111", secondary: "#dd0000", accent: "#f4e4a8", pattern: "band", label: "GER" },
+    l1: { primary: "#0055a4", secondary: "#ffffff", accent: "#ef4135", pattern: "bars", label: "FRA" },
+    ucl: { primary: "#0b1f3a", secondary: "#f0d78c", accent: "#f0d78c", pattern: "band", label: "UCL" },
   };
+
+  const PATTERNS = ["stripes", "bars", "band", "split", "cross", "pinstripe"];
 
   function esc(value) {
     return String(value)
@@ -63,8 +67,16 @@
       .replaceAll('"', "&quot;");
   }
 
+  function keyOf(name) {
+    return String(name || "")
+      .toLowerCase()
+      .replace(/&/g, "and")
+      .replace(/[^a-z0-9]/g, "");
+  }
+
   function luminance(hex) {
-    const n = Number.parseInt(String(hex).replace("#", ""), 16);
+    const raw = String(hex || "").replace("#", "");
+    const n = Number.parseInt(raw.length === 3 ? raw.replace(/./g, (c) => c + c) : raw, 16);
     if (Number.isNaN(n)) return 128;
     const r = (n >> 16) & 255;
     const g = (n >> 8) & 255;
@@ -72,96 +84,151 @@
     return 0.299 * r + 0.587 * g + 0.114 * b;
   }
 
-  function patternMarkup(pattern, secondary) {
-    if (pattern === "stripes") {
-      return [48, 54, 60]
-        .map((x) => `<rect x="${x}" y="8" width="4.2" height="84" fill="${secondary}"/>`)
-        .join("");
-    }
-    if (pattern === "bars") {
-      return `<rect x="13" y="8" width="7" height="84" fill="${secondary}"/><rect x="20" y="8" width="3.2" height="84" fill="#f0d78c"/>`;
-    }
-    if (pattern === "band") {
-      return `<rect x="12" y="40" width="56" height="12" fill="${secondary}"/>`;
-    }
-    if (pattern === "split") {
-      return `<rect x="12" y="48" width="56" height="44" fill="${secondary}"/>`;
-    }
-    return "";
+  function hash(name) {
+    let h = 0;
+    for (const ch of String(name || "FC")) h = (h * 33 + ch.charCodeAt(0)) >>> 0;
+    return h;
   }
 
-  function markup(spec) {
+  function patternMarkup(pattern, secondary, accent) {
+    const s = secondary || "#111111";
+    const a = accent || "#f4e4a8";
+    if (pattern === "stripes") {
+      return [49, 55.5, 62].map((x) => `<rect x="${x}" y="0" width="5.2" height="100" fill="${s}"/>`).join("");
+    }
+    if (pattern === "bars") {
+      return `<rect x="10" y="0" width="8" height="100" fill="${s}"/><rect x="18" y="0" width="3" height="100" fill="${a}"/>`;
+    }
+    if (pattern === "band") {
+      return `<rect x="0" y="48" width="80" height="12" fill="${s}"/>`;
+    }
+    if (pattern === "split") {
+      return `<rect x="0" y="54" width="80" height="46" fill="${s}"/>`;
+    }
+    if (pattern === "cross") {
+      return `<rect x="33" y="0" width="14" height="100" fill="${a}"/><rect x="0" y="46" width="80" height="14" fill="${s}"/>`;
+    }
+    let lines = "";
+    for (let i = -30; i < 100; i += 7) {
+      lines += `<line x1="${i}" y1="108" x2="${i + 36}" y2="28" stroke="${s}" stroke-width="1.35"/>`;
+    }
+    return lines;
+  }
+
+  function stars(count, fill) {
+    const gap = 9;
+    const start = 40 - ((count - 1) * gap) / 2;
+    let out = "";
+    for (let i = 0; i < count; i += 1) {
+      const x = start + i * gap;
+      out += `<polygon points="${x},33.2 ${x + 1.15},36.2 ${x + 4.2},36.4 ${x + 1.8},38.4 ${x + 2.5},41.4 ${x},39.6 ${x - 2.5},41.4 ${x - 1.8},38.4 ${x - 4.2},36.4 ${x - 1.15},36.2" fill="${fill}"/>`;
+    }
+    return out;
+  }
+
+  function football() {
+    return `
+      <circle cx="40" cy="63" r="15.2" fill="#111"/>
+      <circle cx="40" cy="63" r="13.1" fill="#fff" stroke="#111" stroke-width="1.15"/>
+      <polygon points="40,53.6 47.1,58.6 44.5,66.8 35.5,66.8 32.9,58.6" fill="#111"/>
+      <path d="M40 49.9 V53.6 M27.4 59.2 L32.9 58.6 M52.6 59.2 L47.1 58.6 M31.2 73.4 L35.5 66.8 M48.8 73.4 L44.5 66.8" fill="none" stroke="#111" stroke-width="1.05" stroke-linecap="round"/>
+    `;
+  }
+
+  function fitLabel(raw, variant) {
+    const text = String(raw || "FC")
+      .toUpperCase()
+      .replace(/[^A-Z0-9 ]/g, "")
+      .trim();
+    const compact = text.replace(/\s+/g, "");
+    if (variant === "lg") return (compact.length <= 11 ? compact : compact.slice(0, 3)) || "FC";
+    if (variant === "xs") return compact.slice(0, 3) || "FC";
+    return (compact.length <= 4 ? compact : compact.slice(0, 3)) || "FC";
+  }
+
+  function markup(spec, variant) {
     const id = `crest${++seq}`;
-    const primary = spec.primary || "#8e8e93";
-    const secondary = spec.secondary || "#111111";
-    const dark = luminance(primary) < 48;
-    const plate = dark ? "#f0d78c" : "#161616";
-    const ink = dark ? "#161616" : "#f0d78c";
-    const label = esc((spec.label || "FC").slice(0, 4));
+    const primary = spec.primary || "#8e1f2f";
+    const secondary = spec.secondary || (luminance(primary) > 160 ? "#111111" : "#ffffff");
+    const accent = spec.accent || "#f4e4a8";
+    const pattern = spec.pattern || "band";
+    const label = esc(fitLabel(spec.label, variant));
+    const fontSize = label.length <= 3 ? 8.2 : label.length <= 6 ? 6.3 : 5.15;
+    const cap = luminance(primary) < 42 ? "#f4e4a8" : "#141414";
+    const ink = luminance(cap) < 80 ? "#f6e7b2" : "#161616";
+    const starFill = pattern === "cross" ? "#009c3b" : accent;
+    const starCount = pattern === "cross" ? 5 : 0;
 
     return `<svg class="crest-svg" viewBox="0 0 80 100" role="img" aria-label="${label}">
-      <path d="M40 4 L70 15 V49 C70 68 57 83 40 94 C23 83 10 68 10 49 V15 Z" fill="#111"/>
-      <clipPath id="${id}"><path d="${SHIELD}"/></clipPath>
+      <path d="${OUTER}" fill="#111"/>
+      <path d="${GOLD}" fill="#e4c56a"/>
+      <clipPath id="${id}"><path d="${INNER}"/></clipPath>
       <g clip-path="url(#${id})">
         <rect width="80" height="100" fill="${primary}"/>
-        ${patternMarkup(spec.pattern, secondary)}
-        <rect x="18" y="16" width="44" height="13" rx="1.5" fill="${plate}"/>
+        ${patternMarkup(pattern, secondary, accent)}
+        <path d="M11 20 C22 11 58 11 69 20 L66 33 C54 26 26 26 14 33 Z" fill="${cap}"/>
+        ${starCount ? stars(starCount, starFill) : ""}
+        ${football()}
       </g>
-      <path d="${SHIELD}" fill="none" stroke="#e4c56a" stroke-width="1.7"/>
-      <circle cx="40" cy="54" r="15.5" fill="none" stroke="#e4c56a" stroke-width="2"/>
-      <circle cx="40" cy="54" r="12.2" fill="#fff" stroke="#111" stroke-width="1.3"/>
-      <polygon points="40,45.2 46.6,49.8 44.2,57.2 35.8,57.2 33.4,49.8" fill="#111"/>
-      <text x="40" y="25.8" text-anchor="middle" fill="${ink}" font-family="Inter, Liberation Sans, sans-serif" font-size="9" font-weight="800" letter-spacing="0.8">${label}</text>
+      <path d="${INNER}" fill="none" stroke="#e4c56a" stroke-width="1.35"/>
+      <path id="${id}arc" d="M18 29.5 Q40 16.5 62 29.5" fill="none"/>
+      <text fill="${ink}" font-family="Impact, Haettenschweiler, Arial Black, sans-serif" font-size="${fontSize}" font-weight="700" letter-spacing="0.4">
+        <textPath href="#${id}arc" startOffset="50%" text-anchor="middle">${label}</textPath>
+      </text>
     </svg>`;
   }
 
-  function fromTeam(team) {
-    const style = STYLE[team.id] || { secondary: "#ffffff", pattern: "band" };
+  function named(name) {
+    let current = keyOf(name);
+    const seen = new Set();
+    while (current && NAMED[current] && !seen.has(current)) {
+      seen.add(current);
+      if (NAMED[current].alias) {
+        current = NAMED[current].alias;
+        continue;
+      }
+      return { ...NAMED[current] };
+    }
+    const hit = Object.keys(NAMED).find((k) => !NAMED[k].alias && k.length >= 6 && current.includes(k));
+    return hit ? { ...NAMED[hit] } : null;
+  }
+
+  function fromHint(name, hint) {
+    const known = named(name);
+    if (known) return known;
+    const h = hash(name);
+    const primary = hint?.primary || ["#c8102e", "#034694", "#111111", "#fde100", "#008c45", "#0057b8"][h % 6];
+    const letters = String(hint?.label || name || "FC")
+      .replace(/[^A-Za-z0-9]/g, "")
+      .slice(0, 8)
+      .toUpperCase();
     return {
-      primary: team.color,
-      secondary: style.secondary,
-      pattern: style.pattern,
-      label: team.short || team.name.slice(0, 3).toUpperCase(),
+      primary,
+      secondary: luminance(primary) > 170 ? "#111111" : "#ffffff",
+      accent: "#f4e4a8",
+      pattern: PATTERNS[h % PATTERNS.length],
+      label: letters || "FC",
     };
   }
 
-  function fallback(name) {
-    const palettes = [
-      ["#c8102e", "#111111", "stripes"],
-      ["#034694", "#ffffff", "bars"],
-      ["#6cabdd", "#ffffff", "band"],
-      ["#241f20", "#ffffff", "stripes"],
-      ["#fde100", "#111111", "band"],
-      ["#008c45", "#ffffff", "split"],
-    ];
-    let h = 0;
-    for (const ch of name) h = (h * 33 + ch.charCodeAt(0)) >>> 0;
-    const pick = palettes[h % palettes.length];
-    const letters = name.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase() || "FC";
-    return { primary: pick[0], secondary: pick[1], pattern: pick[2], label: letters };
-  }
-
-  function resolve(name) {
-    const extra = EXTRAS[name];
-    if (extra?.alias) return resolve(extra.alias);
-    const data = window.NINETY_DATA;
-    const team = data?.teamByName?.[name] || data?.teams?.find((t) => t.name === name);
-    if (team) return fromTeam(team);
-    if (extra) return extra;
-    return fallback(name || "Club");
-  }
-
   function wrap(spec, variant) {
-    const size = variant === "lg" ? " crest-lg" : "";
-    return `<span class="crest${size}">${markup(spec)}</span>`;
+    const size =
+      variant === "lg" ? " crest-lg" : variant === "sm" ? " crest-sm" : variant === "xs" ? " crest-xs" : "";
+    return `<span class="crest${size}">${markup(spec, variant)}</span>`;
   }
 
-  window.NINETY_CREST = function (name, variant) {
-    return wrap(resolve(name), variant);
+  window.NINETY_CREST = function (name, variant, hint) {
+    return wrap(fromHint(name, hint), variant || "");
   };
 
-  window.NINETY_LEAGUE_CREST = function (league) {
-    const spec = LEAGUES[league?.id] || { primary: "#1c1c1e", secondary: "#ffffff", pattern: "band", label: league?.flag || "FC" };
-    return wrap(spec);
+  window.NINETY_LEAGUE_CREST = function (league, variant) {
+    const spec = LEAGUES[league?.id] || {
+      primary: "#1c1c1e",
+      secondary: "#f4e4a8",
+      accent: "#f4e4a8",
+      pattern: "band",
+      label: league?.flag || league?.name || "FC",
+    };
+    return wrap(spec, variant || "xs");
   };
 })();

@@ -1,17 +1,28 @@
-# NINETY
+# Derby
 
-iOS-style football app (FotMob-like) with five tabs:
+Heraldic badge-style football app with five tabs:
 
-1. **Matches** — live scores across Premier League, La Liga, Serie A, Bundesliga, Ligue 1 + Champions League
-2. **Transfers** — big European moves this season
-3. **Ask AI** — ask anything football-related
-4. **Teams** — top-flight leagues → clubs → lineup, form, stadium, manager
-5. **Favourites** — your clubs with last-five results and form
+1. **Matches** — fast live scores with shield club badges
+2. **Transfers** — 2027 window board
+3. **Ask AI** — ChatGPT via OpenAI API (+ live score context)
+4. **Teams** — squads, player season stats, 4-3-3 pitch
+5. **Favourites** — saved clubs + alerts
+
+## ChatGPT / Ask AI
+
+Paste an **OpenAI API key** in Account (from https://platform.openai.com/api-keys), or:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+python3 server.py
+```
+
+This uses the OpenAI API (ChatGPT models). It cannot log into a chatgpt.com browser session.
 
 ## Run locally
 
 ```bash
-python3 -m http.server 4173
+python3 server.py
 ```
 
 Open http://localhost:4173
