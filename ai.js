@@ -262,5 +262,34 @@
     return { text: "Thinking…", source: "Derby AI", async: true };
   }
 
-  window.NINETY_AI = { answerQuestion, research, askChatGPT, normalize, findTeam };
+  function localNewsOverview(articles) {
+    if (!articles.length) {
+      return "No fresh transfer briefs are on the wire right now. The board above is still the 2027 window inside Derby.";
+    }
+    const sentences = articles.slice(0, 5).map((article) => {
+      const blurb = String(article.description || "").replace(/\s+/g, " ").trim();
+      return blurb ? `${article.headline}. ${blurb}` : `${article.headline}.`;
+    });
+    return `Latest from the wire. ${sentences.join(" ")}`;
+  }
+
+  async function overviewNews(articles) {
+    const list = articles || [];
+    const brief = list
+      .slice(0, 8)
+      .map((article) => `- ${article.headline}. ${article.description || ""}`)
+      .join("\n");
+    if (!brief) return { text: localNewsOverview([]), source: "Derby AI" };
+    try {
+      const chat = await askChatGPT(
+        `Write two short paragraphs overviewing the most recent football transfer news. Use only these reports. Plain sentences, no bullet list.\n${brief}`,
+        {}
+      );
+      return chat;
+    } catch {
+      return { text: localNewsOverview(list), source: "Derby AI" };
+    }
+  }
+
+  window.NINETY_AI = { answerQuestion, research, askChatGPT, overviewNews, normalize, findTeam };
 })();

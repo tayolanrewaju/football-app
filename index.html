@@ -4,21 +4,33 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="theme-color" content="#050814" />
-    <meta name="description" content="Derby — live scores, transfers, teams, favourites, Ask AI with ChatGPT." />
+    <meta name="apple-mobile-web-app-title" content="Derby" />
+    <meta name="theme-color" content="#1A1A1A" />
+    <meta name="description" content="Derby — live scores, transfers, teams, favourites, Ask AI." />
     <title>Derby</title>
+    <link rel="icon" href="logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="manifest.webmanifest" />
     <link rel="preconnect" href="https://a.espncdn.com" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="device">
       <div class="phone">
+        <div id="alert-toast" class="alert-toast" hidden></div>
         <header class="nav-bar">
           <div class="nav-left">
             <button type="button" class="back-btn" id="nav-back" hidden>‹ Back</button>
-            <p class="nav-eyebrow" id="nav-date"></p>
-            <h1 class="nav-title" id="nav-title">Matches</h1>
+            <div class="brand">
+              <img class="app-logo" src="logo.svg" alt="" width="46" height="46" />
+              <div>
+                <p class="nav-eyebrow" id="nav-date"></p>
+                <h1 class="nav-title" id="nav-title">Matches</h1>
+              </div>
+            </div>
           </div>
           <button type="button" class="account-btn" id="account-btn" aria-label="Account">
             <span id="account-avatar" class="account-avatar" aria-hidden="true">
@@ -59,14 +71,18 @@
 
           <section id="teams" class="screen" aria-label="Teams">
             <form id="team-search-form" class="team-search" role="search">
-              <label class="sr-only" for="team-search-input">Search any team in the world</label>
-              <input id="team-search-input" type="search" placeholder="Search any club in the world…" autocomplete="off" />
+              <label class="sr-only" for="team-search-input">Search clubs and players</label>
+              <input id="team-search-input" type="search" placeholder="Search clubs and players…" autocomplete="off" />
               <button type="submit" class="search-go">Search</button>
             </form>
             <div id="teams-list" class="scroll"></div>
           </section>
 
           <section id="favourites" class="screen" aria-label="Favourites">
+            <div class="seg scroll-seg" id="fav-modes" role="tablist" aria-label="Favourites">
+              <button type="button" class="seg-btn is-on" data-fav="following">Following</button>
+              <button type="button" class="seg-btn" data-fav="fantasy">Fantasy</button>
+            </div>
             <div id="favourites-list" class="scroll"></div>
           </section>
 
@@ -114,6 +130,10 @@
     <script src="api.js"></script>
     <script src="auth.js"></script>
     <script src="ai.js"></script>
+    <script src="fantasy.js"></script>
+    <script src="fantasy_game.js"></script>
+    <script src="fantasy_ui.js"></script>
+    <script src="alerts.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

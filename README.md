@@ -1,8 +1,8 @@
 # Derby
 
-iOS liquid-glass football app with five tabs:
+Modern dark football app with five tabs:
 
-1. **Matches** — fast live scores with filled club crests
+1. **Matches** — fast live scores with club badges
 2. **Transfers** — 2027 window board
 3. **Ask AI** — ChatGPT via OpenAI API (+ live score context)
 4. **Teams** — squads, player season stats, 4-3-3 pitch
