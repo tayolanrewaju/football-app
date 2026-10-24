@@ -1,32 +1,32 @@
 :root {
   --bg: #121212;
-  --paper: #f6f1e6;
-  --paper-2: #fffaf0;
-  --ink: #161616;
-  --secondary: #5c564c;
-  --separator: rgba(17, 17, 17, 0.14);
-  --gold: #e4c56a;
-  --gold-deep: #b8923a;
+  --paper: #1a1a1a;
+  --paper-2: #262b33;
+  --ink: #f3f0e6;
+  --secondary: #9aa3b2;
+  --separator: rgba(212, 175, 55, 0.22);
+  --gold: #d4af37;
+  --gold-deep: #a8882a;
   --blue: #0057b8;
-  --green: #0d7a32;
-  --red: #d71920;
-  --orange: #c9a227;
-  --teal: #0e6b5c;
-  --violet: #3d195b;
-  --pink: #9c824a;
-  --cyan: #9c824a;
-  --fill: rgba(228, 197, 106, 0.28);
-  --fill-strong: #111111;
-  --glass: #fffaf0;
-  --glass-border: #161616;
-  --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  --green: #1f8a4c;
+  --red: #e23b3b;
+  --orange: #d4af37;
+  --teal: #1f6f8a;
+  --violet: #0057b8;
+  --pink: #d4af37;
+  --cyan: #0057b8;
+  --fill: rgba(0, 87, 184, 0.32);
+  --fill-strong: #0057b8;
+  --glass: #262b33;
+  --glass-border: rgba(212, 175, 55, 0.45);
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   --radius: 8px;
   --safe-top: max(12px, env(safe-area-inset-top));
   --safe-bottom: max(8px, env(safe-area-inset-bottom));
   --font: "Avenir Next Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
   --display: Impact, Haettenschweiler, "Arial Black", "Arial Narrow", sans-serif;
   --ease-ios: cubic-bezier(0.22, 1, 0.36, 1);
-  color-scheme: light;
+  color-scheme: dark;
   font-family: var(--font);
 }
 
@@ -41,7 +41,7 @@ body {
   min-height: 100vh;
   color: var(--ink);
   background:
-    repeating-linear-gradient(-28deg, transparent, transparent 11px, rgba(228, 197, 106, 0.09) 11px, rgba(228, 197, 106, 0.09) 12px),
+    repeating-linear-gradient(-28deg, transparent, transparent 11px, rgba(212, 175, 55, 0.08) 11px, rgba(212, 175, 55, 0.08) 12px),
     #121212;
   display: grid;
   place-items: center;
@@ -56,11 +56,12 @@ button, input { font: inherit; color: inherit; }
   position: relative;
   height: min(860px, calc(100vh - 48px));
   background:
-    linear-gradient(180deg, #fffaf0 0%, var(--paper) 40%, #efe6d4 100%);
+    radial-gradient(520px 240px at 100% 0%, rgba(0, 87, 184, 0.35), transparent 58%),
+    linear-gradient(180deg, #2a3140 0%, #1a1a1a 42%, #161616 100%);
   border-radius: 22px;
   box-shadow:
     0 0 0 3px var(--gold),
-    0 0 0 11px #111,
+    0 0 0 11px #1a1a1a,
     var(--shadow);
   overflow: hidden;
   display: grid;
@@ -77,8 +78,8 @@ button, input { font: inherit; color: inherit; }
     -32deg,
     transparent,
     transparent 14px,
-    rgba(17, 17, 17, 0.025) 14px,
-    rgba(17, 17, 17, 0.025) 15px
+    rgba(212, 175, 55, 0.045) 14px,
+    rgba(212, 175, 55, 0.045) 15px
   );
   z-index: 0;
 }
@@ -142,7 +143,7 @@ button, input { font: inherit; color: inherit; }
   letter-spacing: 0.06em;
   font-weight: 700;
   text-transform: uppercase;
-  color: #f6f1e6;
+  color: #f3f0e6;
 }
 
 .account-btn {
@@ -202,8 +203,8 @@ button, input { font: inherit; color: inherit; }
 }
 
 .team-search input {
-  border: 2px solid #161616;
-  background: var(--paper-2);
+  border: 2px solid var(--gold);
+  background: #1a1a1a;
   border-radius: 6px;
   padding: 12px 14px;
   font-size: 15px;
@@ -212,10 +213,10 @@ button, input { font: inherit; color: inherit; }
 }
 
 .search-go {
-  border: 2px solid #161616;
+  border: 2px solid var(--blue);
   border-radius: 6px;
   padding: 0 14px;
-  background: #111;
+  background: var(--blue);
   color: var(--gold);
   font-family: var(--display);
   letter-spacing: 0.08em;
@@ -263,8 +264,8 @@ button, input { font: inherit; color: inherit; }
 
 .seg-btn {
   flex: 0 0 auto;
-  border: 2px solid #161616;
-  background: var(--paper-2);
+  border: 2px solid rgba(212, 175, 55, 0.55);
+  background: #1a1a1a;
   color: var(--ink);
   font-family: var(--display);
   font-size: 14px;
@@ -280,25 +281,25 @@ button, input { font: inherit; color: inherit; }
 }
 
 .seg-btn.is-on {
-  background: #111;
+  background: var(--blue);
   color: var(--gold);
-  border-color: #111;
+  border-color: var(--blue);
 }
 
 .group, .glass-card {
   background: var(--paper-2);
-  border: 2px solid #161616;
+  border: 1px solid rgba(212, 175, 55, 0.4);
   border-radius: var(--radius);
   overflow: hidden;
   margin-bottom: 16px;
-  box-shadow: 3px 3px 0 #161616;
+  box-shadow: 0 0 0 1px rgba(0, 87, 184, 0.18);
   animation: rise-soft 0.4s var(--ease-ios) both;
 }
 
 .group-title, .league-heading {
   margin: 0 0 8px;
   padding: 0 2px;
-  color: #161616;
+  color: var(--gold);
   font-family: var(--display);
   font-size: 15px;
   font-weight: 700;
@@ -476,7 +477,7 @@ button, input { font: inherit; color: inherit; }
 .team-row:active { background: rgba(228, 197, 106, 0.35); }
 .team-name { font-size: 16px; font-weight: 800; }
 .team-meta { color: var(--secondary); font-size: 13px; }
-.chev { color: #161616; font-size: 20px; font-weight: 700; }
+.chev { color: var(--blue); font-size: 20px; font-weight: 700; }
 
 .fav-row {
   grid-template-columns: auto 1fr auto;
@@ -561,10 +562,10 @@ button, input { font: inherit; color: inherit; }
 .primary-action:active, .auth-btn:active { transform: scale(0.98); }
 
 .primary-action.secondary, .auth-btn.secondary {
-  background: var(--paper);
-  color: #111;
-  border: 2px solid #111;
-  box-shadow: 3px 3px 0 #111;
+  background: #1a1a1a;
+  color: var(--gold);
+  border: 2px solid var(--blue);
+  box-shadow: 3px 3px 0 var(--blue);
 }
 
 .auth-btn.apple { background: #fff; color: #000; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
@@ -597,12 +598,12 @@ button, input { font: inherit; color: inherit; }
 
 .auth-sheet-card {
   width: min(100%, 400px);
-  background: var(--paper);
+  background: #1a1a1a;
   color: var(--ink);
   border-radius: 10px;
   padding: 18px;
   box-shadow: var(--shadow);
-  border: 3px solid #111;
+  border: 3px solid var(--gold);
 }
 
 .auth-sheet-brand {
@@ -642,8 +643,8 @@ button, input { font: inherit; color: inherit; }
 }
 .auth-sheet-form input,
 .auth-card input {
-  border: 2px solid #161616;
-  background: #fff;
+  border: 2px solid rgba(212, 175, 55, 0.55);
+  background: #1a1a1a;
   border-radius: 6px;
   padding: 12px 14px;
   font-size: 16px;
@@ -751,8 +752,8 @@ button, input { font: inherit; color: inherit; }
 }
 
 .stat-card {
-  background: var(--paper);
-  border: 2px solid #161616;
+  background: #1a1a1a;
+  border: 2px solid rgba(212, 175, 55, 0.4);
   border-radius: 6px;
   padding: 10px 6px;
   text-align: center;
@@ -896,7 +897,7 @@ button, input { font: inherit; color: inherit; }
 .loading {
   padding: 40px 16px;
   text-align: center;
-  color: #161616;
+  color: var(--gold);
   font-family: var(--display);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -957,8 +958,8 @@ button, input { font: inherit; color: inherit; }
 
 .ask-bubble.ai {
   justify-self: start;
-  background: var(--paper-2);
-  border: 2px solid #161616;
+  background: #262b33;
+  border: 2px solid rgba(212, 175, 55, 0.4);
   border-bottom-left-radius: 4px;
 }
 
@@ -986,9 +987,9 @@ button, input { font: inherit; color: inherit; }
 
 .chip {
   flex: 0 0 auto;
-  border: 2px solid #161616;
-  background: var(--paper-2);
-  color: #161616;
+  border: 2px solid var(--blue);
+  background: #1a1a1a;
+  color: var(--gold);
   font-family: var(--display);
   font-size: 14px;
   letter-spacing: 0.05em;
@@ -1003,8 +1004,8 @@ button, input { font: inherit; color: inherit; }
   grid-template-columns: 1fr auto;
   gap: 8px;
   align-items: center;
-  background: #fff;
-  border: 2px solid #161616;
+  background: #1a1a1a;
+  border: 2px solid var(--blue);
   border-radius: 8px;
   padding: 6px 6px 6px 16px;
 }
