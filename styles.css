@@ -1688,7 +1688,9 @@ html[data-theme="light"] body {
   padding: 0 0 6px;
 }
 
-#favourites:has(.is-points) #fav-modes { display: none; }
+#favourites:has(.is-points) #fav-modes,
+#favourites:has(.is-pick) #fav-modes,
+#favourites:has(.is-transfer) #fav-modes { display: none; }
 
 #favourites-list:has(.is-points) {
   display: flex;
@@ -1841,13 +1843,33 @@ html[data-theme="light"] body {
   gap: 6px;
   border: 0;
   background: #fff;
-  border-radius: 12px;
+  border-radius: 999px;
   padding: 8px 12px;
   font-weight: 750;
   color: #3b1460;
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(20, 16, 40, 0.08);
 }
+
+.gw-menu.is-open > button { position: relative; z-index: 7; }
+
+.gw-menu.is-open::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+}
+
+.gw-chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 0.16s ease;
+}
+
+.gw-menu.is-open .gw-chevron { transform: rotate(225deg) translateY(-1px); }
 
 .pick-opp { width: 16px; height: 13px; display: block; flex: 0 0 auto; }
 
@@ -1856,17 +1878,21 @@ html[data-theme="light"] body {
   right: 0;
   top: calc(100% + 6px);
   background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 10px 28px rgba(20, 16, 40, 0.16);
+  border-radius: 16px;
+  box-shadow: 0 18px 40px rgba(16, 12, 32, 0.18);
   display: grid;
-  min-width: 128px;
-  z-index: 4;
-  overflow: hidden;
+  gap: 2px;
+  min-width: 148px;
+  padding: 6px;
+  z-index: 7;
 }
+
+.gw-menu-pop[hidden] { display: none; }
 
 .gw-menu-pop button {
   border: 0;
-  background: #fff;
+  background: transparent;
+  border-radius: 10px;
   text-align: left;
   padding: 10px 12px;
   color: #2b1248;
@@ -1874,14 +1900,25 @@ html[data-theme="light"] body {
   cursor: pointer;
 }
 
+.gw-menu-pop button.is-on { background: #f3eefe; color: #3b1460; }
+
+.gw-menu-pop button[data-close-menu] {
+  color: #8b8498;
+  font-weight: 700;
+  border-top: 1px solid rgba(43, 18, 72, 0.08);
+  border-radius: 0 0 10px 10px;
+}
+
 .gw-pitch {
   position: relative;
   min-height: 0;
-  padding: 0 0 10px;
+  padding: 0 0 8px;
   display: flex;
   flex-direction: column;
-  background-color: #158a46;
-  background-image: repeating-linear-gradient(to bottom, #169447 0 42px, #1b9b4e 42px 84px);
+  background-color: #0e7a3c;
+  background-image:
+    radial-gradient(90% 55% at 50% 0%, rgba(255, 255, 255, 0.16), transparent 46%),
+    linear-gradient(180deg, #1b9a4c 0%, #0e7a3c 58%, #0b6934 100%);
 }
 
 .gw-pitch::before,
@@ -1952,22 +1989,25 @@ html[data-theme="light"] body {
 
 .shirt-card {
   position: relative;
-  width: 64px;
+  width: 66px;
   border: 0;
   background: transparent;
   padding: 0;
   display: grid;
   justify-items: center;
+  align-content: center;
   color: inherit;
   cursor: pointer;
 }
 
 .shirt-photo {
-  width: 46px;
-  height: 36px;
+  position: relative;
+  width: 48px;
+  height: 64px;
   overflow: hidden;
-  border-radius: 7px 7px 2px 2px;
-  background: rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: #d5d9e4;
+  box-shadow: 0 8px 16px rgba(6, 24, 16, 0.22);
 }
 
 .shirt-face {
@@ -1990,45 +2030,56 @@ html[data-theme="light"] body {
 
 .shirt-name {
   width: 100%;
-  max-width: 64px;
+  max-width: 66px;
   min-height: 16px;
-  margin-top: -1px;
-  border-radius: 3px;
+  margin-top: 3px;
+  border-radius: 6px;
   font-size: 10px;
   font-weight: 800;
   line-height: 16px;
   text-align: center;
-  padding: 0 3px;
+  padding: 0 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .shirt-sub {
-  font-size: 10px;
-  font-weight: 750;
-  margin-top: 1px;
-  line-height: 1.1;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 3px 3px 3px;
+  background: rgba(14, 16, 24, 0.86);
   color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .shirt-mark, .shirt-flag {
   position: absolute;
-  z-index: 2;
-  top: -2px;
-  width: 16px;
-  height: 16px;
+  z-index: 3;
+  top: 3px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 800;
 }
 
-.shirt-mark { right: 2px; background: #111; color: #fff; }
+.shirt-mark { right: 3px; background: #111; color: #fff; }
 .shirt-mark.is-v { background: #3d3d3d; }
-.shirt-flag { left: 2px; background: #f5c518; color: #1a1a1a; }
+.shirt-flag { left: 3px; background: #f5c518; color: #1a1a1a; }
 
 .shirt-card.is-empty { cursor: default; }
 .shirt-card.is-empty .shirt-photo {
@@ -2036,6 +2087,7 @@ html[data-theme="light"] body {
   background: transparent;
 }
 .shirt-card.is-empty .shirt-name { background: transparent !important; }
+.shirt-card.is-empty .shirt-sub { display: none; }
 
 .gw-bench {
   display: flex;
@@ -2045,10 +2097,7 @@ html[data-theme="light"] body {
   background: #f6f7fb;
 }
 
-.gw-bench .shirt-sub {
-  color: #2b1248;
-  text-shadow: none;
-}
+.gw-bench .shirt-photo { width: 44px; height: 58px; }
 
 .gw-bench-slot {
   display: grid;
@@ -2103,45 +2152,18 @@ html[data-theme="light"] body {
 
 .is-points .gw-line {
   flex: 1 1 0;
-  min-height: 78px;
+  min-height: 84px;
   align-items: center;
   padding: 0 2px;
 }
 
-.is-points .gw-pitch .shirt-card {
-  width: 78px;
-  height: 100%;
-  max-height: 118px;
-  grid-template-rows: minmax(0, 1fr) auto auto;
-  align-content: center;
-}
-
-.is-points .gw-pitch .shirt-photo {
-  width: 64px;
-  height: 100%;
-  max-height: 58px;
-  min-height: 0;
-  align-self: end;
-}
-
-.is-points .gw-pitch .shirt-name {
-  max-width: 78px;
-  min-height: 18px;
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.is-points .gw-pitch .shirt-sub {
-  font-size: 15px;
-  font-weight: 800;
-  margin-top: 1px;
-  line-height: 1;
-}
+.is-points .gw-pitch .shirt-card { width: 70px; }
+.is-points .gw-pitch .shirt-photo { width: 50px; height: 66px; }
+.is-points .gw-pitch .shirt-name { max-width: 70px; font-size: 11px; }
 
 .is-points .gw-bench { padding: 4px 6px 8px; }
-.is-points .gw-bench .shirt-card { width: 72px; height: auto; }
-.is-points .gw-bench .shirt-photo { width: 52px; height: 40px; }
-.is-points .gw-bench .shirt-sub { font-size: 14px; font-weight: 800; }
+.is-points .gw-bench .shirt-card { width: 66px; }
+.is-points .gw-bench .shirt-photo { width: 44px; height: 58px; }
 
 .gw-list-label {
   margin: 14px 16px 4px;
@@ -2328,16 +2350,123 @@ html[data-theme="light"] body {
   font-size: 10px;
 }
 
-.is-pick .gw-tools { padding: 4px 12px; }
-.is-pick .gw-pitch { padding-bottom: 2px; }
-.is-pick .gw-line { padding-top: 0; }
-.is-pick .gw-sky span { padding: 4px 8px 3px; }
-.is-pick .gw-bench { padding: 1px 6px 4px; }
-
-.is-transfer {
+#favourites-list:has(.is-pick),
+#favourites-list:has(.is-transfer) {
   display: flex;
   flex-direction: column;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+#favourites-list:has(.is-pick) > .fantasy-page,
+#favourites-list:has(.is-transfer) > .fantasy-page {
+  flex: 1 0 auto;
   min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+#favourites-list:has(.is-pick .gw-pitch),
+#favourites-list:has(.is-transfer .gw-pitch) {
+  overflow: hidden;
+}
+
+#favourites-list:has(.is-pick .gw-pitch) > .fantasy-page,
+#favourites-list:has(.is-transfer .gw-pitch) > .fantasy-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.is-pick {
+  flex: 1 0 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+#favourites-list:has(.is-pick .gw-pitch) .is-pick,
+#favourites-list:has(.is-transfer .gw-pitch) .is-transfer {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.is-pick .gw-head,
+.is-pick .pick-deadline,
+.is-pick .pick-chips,
+.is-pick .gw-tools,
+.is-pick .gw-bench { flex: 0 0 auto; }
+
+.is-pick .gw-tools { padding: 4px 12px; }
+.is-pick .gw-pitch {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-bottom: 0;
+}
+.is-pick .gw-line {
+  flex: 1 1 0;
+  min-height: 0;
+  align-items: center;
+  padding-top: 0;
+}
+.is-pick .gw-pitch .shirt-card {
+  height: 100%;
+  max-height: 96px;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+.is-pick .gw-pitch .shirt-photo {
+  width: auto;
+  height: 100%;
+  max-height: 64px;
+  aspect-ratio: 3 / 4;
+  justify-self: center;
+}
+.is-pick .gw-sky span { padding: 4px 8px 3px; }
+.is-pick .gw-bench { padding: 2px 6px 6px; }
+.is-pick .gw-bench .shirt-photo { width: 40px; height: 52px; }
+
+.is-transfer {
+  flex: 1 0 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.is-transfer .gw-head,
+.is-transfer .pick-deadline,
+.is-transfer .xfer-stats,
+.is-transfer .gw-tools,
+.is-transfer .xfer-bar { flex: 0 0 auto; }
+
+.is-transfer .gw-pitch {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-bottom: 0;
+}
+
+.is-transfer .gw-line {
+  flex: 1 1 0;
+  min-height: 0;
+  align-items: center;
+}
+
+.is-transfer .gw-pitch .shirt-card {
+  height: 100%;
+  max-height: 104px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.is-transfer .gw-pitch .shirt-photo {
+  width: auto;
+  height: 100%;
+  max-height: 58px;
+  aspect-ratio: 3 / 4;
+  justify-self: center;
 }
 
 .xfer-stats {
@@ -2386,28 +2515,29 @@ html[data-theme="light"] body {
 
 .shirt-price {
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   line-height: 1.1;
+  margin-bottom: 2px;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
-.is-transfer .shirt-mark,
-.is-transfer .shirt-flag { top: 14px; }
-.is-transfer .shirt-card { width: 58px; }
-.is-transfer .shirt-name { max-width: 58px; font-size: 9px; }
+.is-transfer .shirt-card { width: 62px; }
+.is-transfer .shirt-photo { width: 44px; height: 58px; }
+.is-transfer .shirt-name { max-width: 62px; font-size: 9px; }
+.is-transfer .shirt-sub { font-size: 9px; padding: 2px 2px; }
 .is-transfer .gw-line { gap: 0; padding: 4px 2px 0; }
 .is-transfer .shirt-card.is-empty { cursor: pointer; }
 
 .xfer-bar {
-  position: sticky;
-  bottom: 0;
+  position: relative;
+  bottom: auto;
   display: grid;
   grid-template-columns: 1.4fr 1fr;
   gap: 10px;
-  margin-top: auto;
-  padding: 12px 12px 14px;
-  background: linear-gradient(180deg, rgba(246, 247, 251, 0), #f6f7fb 30%);
+  margin-top: 0;
+  padding: 8px 12px 12px;
+  background: #f6f7fb;
 }
 
 .xfer-bar button {

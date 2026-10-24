@@ -38,6 +38,7 @@
   let badgeBusy = false;
   let renderStamp = 0;
   let rulesLoaded = false;
+  let menuDismissBound = false;
 
   function esc(value) {
     return ctx.escapeHtml(value ?? "");
@@ -596,11 +597,12 @@
             <button type="button" data-pick-tab="list" class="${pickTab === "list" ? "is-on" : ""}">List</button>
           </div>
           <div class="gw-menu">
-            <button type="button" id="pick-stat" aria-expanded="false">${opponentIcon}${statName} ▾</button>
-            <div class="gw-menu-pop" id="pick-stat-pop" hidden>
-              <button type="button" data-pick-stat="fixture">Opponent</button>
-              <button type="button" data-pick-stat="points">Points</button>
-              <button type="button" data-pick-stat="price">Price</button>
+            <button type="button" id="pick-stat" aria-expanded="false" aria-haspopup="menu">${opponentIcon}${statName} <span class="gw-chevron" aria-hidden="true"></span></button>
+            <div class="gw-menu-pop" id="pick-stat-pop" role="menu" hidden>
+              <button type="button" data-pick-stat="fixture" class="${pickStat === "fixture" ? "is-on" : ""}">Opponent</button>
+              <button type="button" data-pick-stat="points" class="${pickStat === "points" ? "is-on" : ""}">Points</button>
+              <button type="button" data-pick-stat="price" class="${pickStat === "price" ? "is-on" : ""}">Price</button>
+              <button type="button" data-close-menu>Close</button>
             </div>
           </div>
         </div>
@@ -630,13 +632,7 @@
         render(ctx);
       });
     });
-    const pop = ctx.list.querySelector("#pick-stat-pop");
-    ctx.list.querySelector("#pick-stat")?.addEventListener("click", () => {
-      if (!pop) return;
-      const open = pop.hidden;
-      pop.hidden = !open;
-      ctx.list.querySelector("#pick-stat")?.setAttribute("aria-expanded", open ? "true" : "false");
-    });
+    bindStatMenu(ctx.list.querySelector("#pick-stat"), ctx.list.querySelector("#pick-stat-pop"));
     ctx.list.querySelectorAll("[data-pick-stat]").forEach((button) => {
       button.addEventListener("click", () => {
         pickStat = button.dataset.pickStat;
@@ -704,7 +700,7 @@
       const players = state.squad.filter((player) => player.slot === slot);
       const cells = players.map((player) => shirtCard(player, { mode: transferStat, when, price: ctx.money(player.price), sell: true }));
       const need = caps[slot] || 0;
-      while (cells.length < need) cells.push(`<button type="button" class="shirt-card is-empty" data-add aria-label="Add player"><span class="shirt-photo"></span><span class="shirt-name"></span><span class="shirt-sub"></span></button>`);
+      while (cells.length < need) cells.push(`<button type="button" class="shirt-card is-empty" data-add aria-label="Add player"><span class="shirt-photo"><span class="shirt-sub"></span></span><span class="shirt-name"></span></button>`);
       return `<div class="gw-line" data-line="${slot}">${cells.join("")}</div>`;
     });
     const crest = state.badgeImage
@@ -760,11 +756,12 @@
             <button type="button" data-xfer-tab="list" class="${transferTab === "list" ? "is-on" : ""}">List</button>
           </div>
           <div class="gw-menu">
-            <button type="button" id="xfer-stat" aria-expanded="false">${opponentIcon}${statName} ▾</button>
-            <div class="gw-menu-pop" id="xfer-stat-pop" hidden>
-              <button type="button" data-xfer-stat="fixture">Opponent</button>
-              <button type="button" data-xfer-stat="points">Points</button>
-              <button type="button" data-xfer-stat="price">Price</button>
+            <button type="button" id="xfer-stat" aria-expanded="false" aria-haspopup="menu">${opponentIcon}${statName} <span class="gw-chevron" aria-hidden="true"></span></button>
+            <div class="gw-menu-pop" id="xfer-stat-pop" role="menu" hidden>
+              <button type="button" data-xfer-stat="fixture" class="${transferStat === "fixture" ? "is-on" : ""}">Opponent</button>
+              <button type="button" data-xfer-stat="points" class="${transferStat === "points" ? "is-on" : ""}">Points</button>
+              <button type="button" data-xfer-stat="price" class="${transferStat === "price" ? "is-on" : ""}">Price</button>
+              <button type="button" data-close-menu>Close</button>
             </div>
           </div>
         </div>
@@ -791,13 +788,7 @@
         render(ctx);
       });
     });
-    const pop = ctx.list.querySelector("#xfer-stat-pop");
-    ctx.list.querySelector("#xfer-stat")?.addEventListener("click", () => {
-      if (!pop) return;
-      const open = pop.hidden;
-      pop.hidden = !open;
-      ctx.list.querySelector("#xfer-stat")?.setAttribute("aria-expanded", open ? "true" : "false");
-    });
+    bindStatMenu(ctx.list.querySelector("#xfer-stat"), ctx.list.querySelector("#xfer-stat-pop"));
     ctx.list.querySelectorAll("[data-xfer-stat]").forEach((button) => {
       button.addEventListener("click", () => {
         transferStat = button.dataset.xferStat;
@@ -1215,9 +1206,43 @@
     return usable[usable.length - 1] || parts[parts.length - 1];
   }
 
+  function closeStatMenus() {
+    ctx.list?.querySelectorAll(".gw-menu.is-open").forEach((menu) => {
+      const pop = menu.querySelector(".gw-menu-pop");
+      const trigger = menu.querySelector("button[aria-haspopup]");
+      if (pop) pop.hidden = true;
+      trigger?.setAttribute("aria-expanded", "false");
+      menu.classList.remove("is-open");
+    });
+  }
+
+  function bindStatMenu(trigger, pop) {
+    if (!trigger || !pop) return;
+    const menu = trigger.closest(".gw-menu");
+    const setOpen = (open) => {
+      pop.hidden = !open;
+      trigger.setAttribute("aria-expanded", open ? "true" : "false");
+      menu?.classList.toggle("is-open", open);
+    };
+    trigger.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setOpen(pop.hidden);
+    });
+    pop.querySelector("[data-close-menu]")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setOpen(false);
+    });
+    if (menuDismissBound) return;
+    menuDismissBound = true;
+    document.addEventListener("click", () => closeStatMenus());
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeStatMenus();
+    });
+  }
+
   function shirtCard(player, options = {}) {
     if (!player) {
-      return `<div class="shirt-card is-empty" aria-hidden="true"><span class="shirt-photo"></span><span class="shirt-name"></span><span class="shirt-sub"></span></div>`;
+      return `<div class="shirt-card is-empty" aria-hidden="true"><span class="shirt-photo"><span class="shirt-sub"></span></span><span class="shirt-name"></span></div>`;
     }
     const photo = faceOf(player);
     const color = clubColor(player.club);
@@ -1229,11 +1254,8 @@
     const price = options.price ? `<span class="shirt-price">${esc(options.price)}</span>` : "";
     return `<button type="button" class="shirt-card" ${action}${drag}>
       ${price}
-      ${mark}
-      ${flagged ? `<span class="shirt-flag" title="${esc(player.status)}">!</span>` : ""}
-      <span class="shirt-photo">${ctx.faceMarkup(photo.url, player.name, "shirt-face", photo.fallback)}</span>
+      <span class="shirt-photo">${mark}${flagged ? `<span class="shirt-flag" title="${esc(player.status)}">!</span>` : ""}${ctx.faceMarkup(photo.url, player.name, "shirt-face", photo.fallback)}<span class="shirt-sub">${esc(playerStat(player, mode, options.when))}</span></span>
       <span class="shirt-name" style="background:${color};color:${inkFor(color)}">${esc(lastName(player.name))}</span>
-      <span class="shirt-sub">${esc(playerStat(player, mode, options.when))}</span>
     </button>`;
   }
 
@@ -1397,11 +1419,12 @@
             <button type="button" data-tab="list" class="${pointsTab === "list" ? "is-on" : ""}">List</button>
           </div>
           <div class="gw-menu">
-            <button type="button" id="gw-stat" aria-expanded="false">${pointsStat === "price" ? "Price" : pointsStat === "fixture" ? "Fixture" : "Points"} ▾</button>
-            <div class="gw-menu-pop" id="gw-stat-pop" hidden>
-              <button type="button" data-stat="points">Points</button>
-              <button type="button" data-stat="fixture">Fixture</button>
-              <button type="button" data-stat="price">Price</button>
+            <button type="button" id="gw-stat" aria-expanded="false" aria-haspopup="menu">${pointsStat === "price" ? "Price" : pointsStat === "fixture" ? "Fixture" : "Points"} <span class="gw-chevron" aria-hidden="true"></span></button>
+            <div class="gw-menu-pop" id="gw-stat-pop" role="menu" hidden>
+              <button type="button" data-stat="points" class="${pointsStat === "points" ? "is-on" : ""}">Points</button>
+              <button type="button" data-stat="fixture" class="${pointsStat === "fixture" ? "is-on" : ""}">Fixture</button>
+              <button type="button" data-stat="price" class="${pointsStat === "price" ? "is-on" : ""}">Price</button>
+              <button type="button" data-close-menu>Close</button>
             </div>
           </div>
         </div>
@@ -1442,11 +1465,7 @@
         render(ctx);
       });
     });
-    const pop = ctx.list.querySelector("#gw-stat-pop");
-    ctx.list.querySelector("#gw-stat")?.addEventListener("click", () => {
-      if (!pop) return;
-      pop.hidden = !pop.hidden;
-    });
+    bindStatMenu(ctx.list.querySelector("#gw-stat"), ctx.list.querySelector("#gw-stat-pop"));
     ctx.list.querySelectorAll("[data-stat]").forEach((button) => {
       button.addEventListener("click", () => {
         pointsStat = button.dataset.stat;
