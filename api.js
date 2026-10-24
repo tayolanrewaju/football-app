@@ -113,6 +113,17 @@
     return keys;
   }
 
+  function dateWindowKeys(past = 7, future = 7) {
+    const keys = [];
+    const start = new Date();
+    for (let i = -past; i <= future; i += 1) {
+      const dt = new Date(start);
+      dt.setUTCDate(start.getUTCDate() + i);
+      keys.push(yyyymmdd(dt));
+    }
+    return keys;
+  }
+
   function flattenStats(statistics) {
     const out = [];
     const cats = statistics?.splits?.categories || [];
@@ -297,12 +308,11 @@
   }
 
   async function fetchScoreboardBags(league, dateKeys) {
-    const urls = [
-      proxyUrl("site", `apis/site/v2/sports/soccer/${league.slug}/scoreboard`),
-      ...dateKeys.map((d) =>
-        proxyUrl("site", `apis/site/v2/sports/soccer/${league.slug}/scoreboard?dates=${d}`)
-      ),
-    ];
+    const urls = dateKeys.length
+      ? dateKeys.map((d) =>
+          proxyUrl("site", `apis/site/v2/sports/soccer/${league.slug}/scoreboard?dates=${d}`)
+        )
+      : [proxyUrl("site", `apis/site/v2/sports/soccer/${league.slug}/scoreboard`)];
     return Promise.all(
       urls.map(async (url) => {
         try {
@@ -344,9 +354,9 @@
     return matches;
   }
 
-  /** Extend with the next few days (kept small for speed). */
-  async function loadLeagueMatches(league, { days = 7 } = {}) {
-    const dates = upcomingDateKeys(days);
+  /** Last week through next week, one board per day. */
+  async function loadLeagueMatches(league, { past = 7, future = 7, days } = {}) {
+    const dates = dateWindowKeys(past, days != null ? days : future);
     const bags = await fetchScoreboardBags(league, dates);
     const matches = collectEvents(league, bags);
     cache.matchesByLeague[league.id] = matches;
@@ -377,7 +387,7 @@
     return { leagues, matches, teams: [] };
   }
 
-  async function loadAll({ days = 7 } = {}) {
+  async function loadAll({ past = 7, future = 7, days } = {}) {
     const teams = [];
     const matches = [];
     const leagues = [];
@@ -385,7 +395,7 @@
     const matchResults = await Promise.all(
       LEAGUES.map(async (league) => {
         try {
-          const leagueMatches = await loadLeagueMatches(league, { days });
+          const leagueMatches = await loadLeagueMatches(league, { past, future: days != null ? days : future });
           return {
             league: cache.leagueMeta[league.id] || { ...league, logo: LEAGUE_LOGOS[league.id] },
             matches: leagueMatches,
@@ -609,6 +619,117 @@
     }
   }
 
+  async function loadMatchDetail(leagueId, eventId) {
+    const league = LEAGUES.find((l) => l.id === leagueId);
+    const slug = league?.slug || "eng.1";
+    const data = await fetchJson(
+      proxyUrl("site", `apis/site/v2/sports/soccer/${slug}/summary?event=${encodeURIComponent(eventId)}`)
+    );
+    const comp = data.header?.competitions?.[0] || {};
+    const status = mapStatus(comp.status);
+    const sides = {};
+    for (const competitor of comp.competitors || []) {
+      const team = competitor.team || {};
+      const records = competitor.record || [];
+      sides[competitor.homeAway] = {
+        id: String(team.id || ""),
+        name: team.displayName || competitor.homeAway,
+        short: team.abbreviation || "",
+        score: competitor.score == null || competitor.score === "" ? null : Number(competitor.score),
+        logo: teamLogo(team),
+        color: team.color ? `#${team.color}` : "#888",
+        record: records.find((r) => r.type === "total")?.summary || "",
+        points: records.find((r) => r.type === "points")?.summary || "",
+        slug,
+      };
+    }
+    const lineups = {};
+    for (const block of data.rosters || []) {
+      lineups[block.homeAway] = {
+        formation: block.formation || "",
+        players: (block.roster || []).map((p) => ({
+          id: String(p.athlete?.id || ""),
+          name: p.athlete?.displayName || p.athlete?.fullName || "Player",
+          number: p.jersey || "",
+          position: p.position?.abbreviation || "",
+          positionName: p.position?.displayName || "",
+          starter: !!p.starter,
+          headshot: p.athlete?.headshot?.href || "",
+        })),
+      };
+    }
+    const events = (data.keyEvents || [])
+      .filter((event) => /goal|card|sub/i.test(event.type?.text || "") || event.scoringPlay)
+      .map((event) => ({
+        minute: event.clock?.displayValue || "",
+        text: event.text || event.type?.text || "",
+        type: event.type?.text || "",
+        team: event.team?.displayName || "",
+        scoring: !!event.scoringPlay,
+      }))
+      .filter((event) => event.text);
+    const homeStats = data.boxscore?.teams?.find((t) => t.homeAway === "home")?.statistics || [];
+    const awayStats = data.boxscore?.teams?.find((t) => t.homeAway === "away")?.statistics || [];
+    const awayByName = new Map(awayStats.map((s) => [s.name, s.displayValue]));
+    const wanted = ["possessionPct", "totalShots", "shotsOnTarget", "wonCorners", "foulsCommitted", "yellowCards", "redCards", "offsides", "saves"];
+    const stats = homeStats
+      .filter((s) => wanted.includes(s.name) && awayByName.has(s.name))
+      .map((s) => ({ label: s.label || s.name, home: s.displayValue, away: awayByName.get(s.name) }));
+    return {
+      id: String(eventId),
+      leagueId,
+      leagueName: data.header?.league?.name || league?.name || "",
+      status,
+      clock: clockFrom(comp.status, status, comp.date),
+      start: comp.date,
+      venue: data.gameInfo?.venue?.fullName || "",
+      city: data.gameInfo?.venue?.address?.city || "",
+      attendance: data.gameInfo?.attendance || null,
+      home: sides.home,
+      away: sides.away,
+      lineups,
+      events,
+      stats,
+      article: data.article?.headline
+        ? { headline: data.article.headline, description: data.article.description || "" }
+        : null,
+    };
+  }
+
+  async function loadTransferNews() {
+    const bags = await Promise.all(
+      LEAGUES.map(async (league) => {
+        try {
+          return await fetchJson(proxyUrl("site", `apis/site/v2/sports/soccer/${league.slug}/news?limit=8`));
+        } catch {
+          return null;
+        }
+      })
+    );
+    const seen = new Set();
+    const articles = [];
+    for (const bag of bags) {
+      for (const article of bag?.articles || []) {
+        const headline = article.headline || "";
+        if (!headline || seen.has(headline)) continue;
+        seen.add(headline);
+        articles.push({
+          headline,
+          description: article.description || "",
+          published: article.published || article.lastModified || "",
+        });
+      }
+    }
+    const isTransfer = (article) =>
+      /transfer|rumour|rumor|sign|signing|bid|deal|contract|target|loan/i.test(
+        `${article.headline} ${article.description}`
+      );
+    const hot = articles.filter(isTransfer);
+    const pool = hot.length ? hot : articles;
+    pool.sort((a, b) => String(b.published).localeCompare(String(a.published)));
+    return pool.slice(0, 8);
+  }
+
   async function searchTeams(query) {
     const q = String(query || "").trim();
     if (q.length < 2) return [];
@@ -633,6 +754,35 @@
       }));
   }
 
+  async function searchPlayers(query) {
+    const q = String(query || "").trim();
+    if (q.length < 2) return [];
+    const data = await fetchJson(
+      proxyUrl("site", `apis/common/v3/search?query=${encodeURIComponent(q)}&limit=12&type=player`)
+    );
+    return (data.items || [])
+      .filter((item) => item.type === "player" && (item.sport === "soccer" || !item.sport))
+      .map((item) => {
+        const team = item.teamRelationships?.[0]?.core || {};
+        return {
+          id: String(item.id),
+          name: item.displayName || item.shortName || "Player",
+          short: item.shortName || "",
+          number: item.jersey || "",
+          position: item.position?.abbreviation || "",
+          positionName: item.position?.displayName || item.position?.name || "",
+          teamId: team.id ? String(team.id) : "",
+          teamName: team.displayName || team.name || "",
+          teamShort: team.abbreviation || "",
+          teamLogo: teamLogo(team),
+          teamColor: team.color ? `#${String(team.color).replace("#", "")}` : "#888",
+          leagueSlug: String(item.defaultLeagueSlug || "eng.1").toLowerCase(),
+          label: item.label || team.displayName || "",
+          headshot: `https://a.espncdn.com/i/headshots/soccer/players/full/${item.id}.png`,
+        };
+      });
+  }
+
   window.NINETY_API = {
     LEAGUES,
     LEAGUE_LOGOS,
@@ -642,8 +792,11 @@
     loadRoster,
     loadSchedule,
     loadPlayerStats,
+    loadMatchDetail,
+    loadTransferNews,
     buildFormation,
     searchTeams,
+    searchPlayers,
     logoFrom,
   };
 })();

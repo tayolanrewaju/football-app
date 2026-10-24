@@ -22,6 +22,7 @@ let currentView = "matches";
 let teamsLeagueId = null;
 let selectedTeam = null;
 let selectedPlayer = null;
+let selectedMatch = null;
 let accountMode = "signin";
 let live = {
   leagues: API.LEAGUES.map((l) => ({ ...l, logo: null })),
@@ -69,7 +70,8 @@ let alertSettings = loadJson(KEYS.alerts, {
 });
 
 let teamSearchQuery = "";
-let teamSearchResults = [];
+let teamSearchClubs = [];
+let teamSearchPlayers = [];
 let teamSearchLoading = false;
 
 const els = {
@@ -208,8 +210,11 @@ function showView(name) {
 
 function updateNav() {
   const deepTeams = currentView === "teams" && (teamsLeagueId || selectedTeam || selectedPlayer);
-  els.navBack.hidden = !deepTeams;
-  if (currentView === "teams" && selectedPlayer) {
+  const deepMatch = currentView === "matches" && selectedMatch;
+  els.navBack.hidden = !(deepTeams || deepMatch);
+  if (deepMatch) {
+    els.navTitle.textContent = "Match";
+  } else if (currentView === "teams" && selectedPlayer) {
     els.navTitle.textContent = selectedPlayer.name || "Player";
   } else if (currentView === "teams" && selectedTeam) {
     els.navTitle.textContent = selectedTeam.name;
@@ -255,7 +260,7 @@ async function bootstrapLive() {
       renderMatches();
     }
 
-    const data = await API.loadAll({ days: 7 });
+    const data = await API.loadAll({ past: 7, future: 7 });
     live.leagues = data.leagues;
     live.teams = data.teams;
     live.matches = data.matches;
@@ -305,7 +310,215 @@ function resolveMatchCrest(match, side) {
   );
 }
 
+function londonDayKey(iso) {
+  if (!iso) return "undated";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/London",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+}
+
+function dayHeading(iso) {
+  const key = londonDayKey(iso);
+  const today = londonDayKey(new Date().toISOString());
+  const yesterday = londonDayKey(new Date(Date.now() - 86400000).toISOString());
+  const tomorrow = londonDayKey(new Date(Date.now() + 86400000).toISOString());
+  const label = new Intl.DateTimeFormat("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: "Europe/London",
+  }).format(new Date(iso));
+  if (key === today) return `Today · ${label}`;
+  if (key === yesterday) return `Yesterday · ${label}`;
+  if (key === tomorrow) return `Tomorrow · ${label}`;
+  return label;
+}
+
+function matchRow(match) {
+  const row = document.createElement("article");
+  row.className = `match-row${match.status === "Live" ? " is-live" : ""}`;
+  row.style.setProperty("--home-tint", match.homeColor || "#0a84ff");
+  row.style.setProperty("--away-tint", match.awayColor || "#30d158");
+  const scoreHome = match.status === "Upcoming" ? "–" : match.homeScore;
+  const scoreAway = match.status === "Upcoming" ? "–" : match.awayScore;
+  const clock =
+    match.status === "Live" ? match.minute || "Live" : match.status === "Upcoming" ? match.kickoff || "Scheduled" : "FT";
+  const league = live.leagues.find((l) => l.id === match.league);
+  row.innerHTML = `
+    <div class="match-meta">
+      <span class="status ${statusClass(match.status)}">${
+        match.status === "Live"
+          ? `<span class="live-dot"></span>${escapeHtml(clock)}`
+          : escapeHtml(match.status === "Upcoming" ? clock : "FT")
+      }</span>
+      <span>${escapeHtml(league?.name || "")}${isFavName(match.home) || isFavName(match.away) ? " · ★" : ""}</span>
+    </div>
+    <div class="match-teams">
+      <div class="club-line">${resolveMatchCrest(match, "home")}<span>${escapeHtml(match.home)}</span></div>
+      <div class="club-line">${resolveMatchCrest(match, "away")}<span>${escapeHtml(match.away)}</span></div>
+    </div>
+    <div class="score-stack"><span>${scoreHome}</span><span>${scoreAway}</span></div>
+  `;
+  row.addEventListener("click", () => {
+    selectedMatch = match;
+    renderMatches();
+  });
+  return row;
+}
+
+function sideFromDetail(side, fallbackName) {
+  return {
+    id: side?.id,
+    espnId: side?.id,
+    name: side?.name || fallbackName,
+    short: side?.short,
+    logo: side?.logo,
+    color: side?.color,
+    slug: side?.slug || "eng.1",
+  };
+}
+
+function openClubFromMatch(side) {
+  teamsLeagueId = null;
+  selectedPlayer = null;
+  teamSearchQuery = "";
+  selectedTeam = side;
+  showView("teams");
+}
+
+async function renderMatchDetail(match) {
+  els.matchesList.innerHTML = `<div class="loading">Loading ${escapeHtml(match.home)} v ${escapeHtml(match.away)}…</div>`;
+  updateNav();
+  try {
+    const detail = await API.loadMatchDetail(match.league, match.id);
+    if (selectedMatch?.id !== match.id) return;
+    const home = detail.home || {};
+    const away = detail.away || {};
+    const score = (side) => (detail.status === "Upcoming" || side.score == null ? "–" : side.score);
+    const when = detail.start
+      ? new Intl.DateTimeFormat("en-GB", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZone: "Europe/London",
+        }).format(new Date(detail.start))
+      : match.kickoff || "";
+    const header = document.createElement("div");
+    header.className = "group match-hero";
+    header.innerHTML = `
+      <p class="intel-note">${escapeHtml(detail.leagueName || "")} · ${escapeHtml(detail.status === "Live" ? detail.clock : detail.status)}</p>
+      <div class="match-hero-sides">
+        <button type="button" class="match-side" data-side="home">
+          ${crest(sideFromDetail(home, match.home), "crest-lg")}
+          <span class="team-name">${escapeHtml(home.name || match.home)}</span>
+          <span class="team-meta">${escapeHtml(home.record || "")}${home.points ? ` · ${escapeHtml(home.points)} pts` : ""}</span>
+        </button>
+        <div class="match-hero-score">
+          <strong>${score(home)}</strong>
+          <span>${score(away)}</span>
+        </div>
+        <button type="button" class="match-side" data-side="away">
+          ${crest(sideFromDetail(away, match.away), "crest-lg")}
+          <span class="team-name">${escapeHtml(away.name || match.away)}</span>
+          <span class="team-meta">${escapeHtml(away.record || "")}${away.points ? ` · ${escapeHtml(away.points)} pts` : ""}</span>
+        </button>
+      </div>
+      <p class="intel-note">${escapeHtml(when)}${detail.venue ? ` · ${escapeHtml(detail.venue)}` : ""}${
+        detail.city ? `, ${escapeHtml(detail.city)}` : ""
+      }${detail.attendance ? ` · ${Number(detail.attendance).toLocaleString("en-GB")} there` : ""}</p>
+    `;
+    header.querySelector('[data-side="home"]').addEventListener("click", () => openClubFromMatch(sideFromDetail(home, match.home)));
+    header.querySelector('[data-side="away"]').addEventListener("click", () => openClubFromMatch(sideFromDetail(away, match.away)));
+
+    const blocks = [header];
+    if (detail.article?.headline) {
+      const title = document.createElement("p");
+      title.className = "group-title";
+      title.textContent = "Report";
+      const card = document.createElement("div");
+      card.className = "group";
+      card.innerHTML = `<div class="intel-row"><div><p class="intel-title">${escapeHtml(detail.article.headline)}</p><p class="intel-note">${escapeHtml(detail.article.description || "")}</p></div></div>`;
+      blocks.push(title, card);
+    }
+    if (detail.events?.length) {
+      const title = document.createElement("p");
+      title.className = "group-title";
+      title.textContent = "Match events";
+      const card = document.createElement("div");
+      card.className = "group";
+      detail.events.forEach((event) => {
+        const row = document.createElement("div");
+        row.className = "timeline-row";
+        row.innerHTML = `<span class="timeline-min">${escapeHtml(event.minute || "·")}</span><div><p class="intel-title">${escapeHtml(event.text)}</p><p class="intel-note">${escapeHtml(event.team || event.type)}</p></div>`;
+        card.appendChild(row);
+      });
+      blocks.push(title, card);
+    }
+    if (detail.stats?.length) {
+      const title = document.createElement("p");
+      title.className = "group-title";
+      title.textContent = "Team stats";
+      const card = document.createElement("div");
+      card.className = "group";
+      card.innerHTML = detail.stats
+        .map(
+          (stat) => `
+          <div class="compare-row">
+            <span>${escapeHtml(stat.home)}</span>
+            <span class="compare-label">${escapeHtml(stat.label)}</span>
+            <span>${escapeHtml(stat.away)}</span>
+          </div>`
+        )
+        .join("");
+      blocks.push(title, card);
+    }
+    for (const [key, label] of [
+      ["home", home.name || match.home],
+      ["away", away.name || match.away],
+    ]) {
+      const lineup = detail.lineups?.[key];
+      if (!lineup?.players?.length) continue;
+      const starters = lineup.players.filter((p) => p.starter);
+      const bench = lineup.players.filter((p) => !p.starter);
+      const title = document.createElement("p");
+      title.className = "group-title";
+      title.textContent = `${label}${lineup.formation ? ` · ${lineup.formation}` : ""}`;
+      const card = document.createElement("div");
+      card.className = "group";
+      const list = document.createElement("div");
+      starters.forEach((player) => {
+        const row = document.createElement("div");
+        row.className = "lineup-row";
+        row.innerHTML = `<span class="lineup-num">${escapeHtml(player.number || "·")}</span><span>${escapeHtml(player.name)}</span><span class="team-meta">${escapeHtml(player.position || "")}</span>`;
+        list.appendChild(row);
+      });
+      if (bench.length) {
+        const note = document.createElement("p");
+        note.className = "intel-note lineup-bench";
+        note.textContent = `Bench · ${bench.map((p) => p.name).join(", ")}`;
+        list.appendChild(note);
+      }
+      card.appendChild(list);
+      blocks.push(title, card);
+    }
+    els.matchesList.replaceChildren(...blocks);
+  } catch (err) {
+    if (selectedMatch?.id !== match.id) return;
+    els.matchesList.innerHTML = `<div class="group"><div class="empty">Couldn’t load this match.<br>${escapeHtml(err.message || err)}</div></div>`;
+  }
+}
+
 function renderMatches() {
+  updateNav();
+  if (selectedMatch) {
+    renderMatchDetail(selectedMatch);
+    return;
+  }
   if (!live.ready && !live.matches.length) {
     els.matchesList.innerHTML = live.error
       ? `<div class="group"><div class="empty">Couldn’t load live scores.<br>${escapeHtml(live.error)}</div></div>`
@@ -318,60 +531,28 @@ function renderMatches() {
   else if (matchLeague === "fav") list = list.filter((m) => isFavName(m.home) || isFavName(m.away));
   else if (matchLeague !== "all") list = list.filter((m) => m.league === matchLeague);
 
-  list.sort((a, b) => {
-    const rank = (s) => (s === "Live" ? 0 : s === "Upcoming" ? 1 : 2);
-    return rank(a.status) - rank(b.status);
-  });
+  list.sort((a, b) => String(a.start || "").localeCompare(String(b.start || "")));
 
   if (!list.length) {
     els.matchesList.innerHTML = `<div class="group"><div class="empty">No matches in this filter right now.</div></div>`;
     return;
   }
 
-  const byLeague = new Map();
+  const byDay = new Map();
   for (const match of list) {
-    if (!byLeague.has(match.league)) byLeague.set(match.league, []);
-    byLeague.get(match.league).push(match);
+    const key = londonDayKey(match.start);
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(match);
   }
 
   const frag = document.createDocumentFragment();
-  for (const [leagueId, matches] of byLeague) {
-    const league = live.leagues.find((l) => l.id === leagueId);
+  for (const [, matches] of byDay) {
     const title = document.createElement("p");
-    title.className = "group-title league-heading";
-    title.innerHTML = `${leagueLogo(league, "crest-xs")}<span>${escapeHtml(league?.name || leagueId)}</span>`;
+    title.className = "group-title";
+    title.textContent = matches[0]?.start ? dayHeading(matches[0].start) : "Fixtures";
     const group = document.createElement("div");
     group.className = "group match-group";
-    matches.forEach((match) => {
-      const row = document.createElement("article");
-      row.className = `match-row${match.status === "Live" ? " is-live" : ""}`;
-      row.style.setProperty("--home-tint", match.homeColor || "#0a84ff");
-      row.style.setProperty("--away-tint", match.awayColor || "#30d158");
-      const scoreHome = match.status === "Upcoming" ? "–" : match.homeScore;
-      const scoreAway = match.status === "Upcoming" ? "–" : match.awayScore;
-      const clock =
-        match.status === "Live"
-          ? match.minute || "Live"
-          : match.status === "Upcoming"
-            ? match.kickoff || "Scheduled"
-            : "FT";
-      row.innerHTML = `
-        <div class="match-meta">
-          <span class="status ${statusClass(match.status)}">${
-            match.status === "Live"
-              ? `<span class="live-dot"></span>${escapeHtml(clock)}`
-              : escapeHtml(match.status === "Upcoming" ? clock : "FT")
-          }</span>
-          <span>${isFavName(match.home) || isFavName(match.away) ? "★ Following" : ""}</span>
-        </div>
-        <div class="match-teams">
-          <div class="club-line">${resolveMatchCrest(match, "home")}<span>${escapeHtml(match.home)}</span></div>
-          <div class="club-line">${resolveMatchCrest(match, "away")}<span>${escapeHtml(match.away)}</span></div>
-        </div>
-        <div class="score-stack"><span>${scoreHome}</span><span>${scoreAway}</span></div>
-      `;
-      group.appendChild(row);
-    });
+    matches.forEach((match) => group.appendChild(matchRow(match)));
     frag.append(title, group);
   }
 
@@ -429,7 +610,38 @@ function renderTransfers() {
 
   makeGroup("Completed", done);
   makeGroup("Still cooking", hot);
+
+  const overviewTitle = document.createElement("p");
+  overviewTitle.className = "group-title";
+  overviewTitle.textContent = "Latest transfer news";
+  const overview = document.createElement("div");
+  overview.className = "group";
+  overview.innerHTML = `<div class="intel-row"><div><p class="intel-title">Reading the wire…</p><p class="intel-note">Pulling the newest briefs from the leagues.</p></div></div>`;
+  frag.append(overviewTitle, overview);
   els.transfersList.replaceChildren(frag);
+  loadTransferOverview(overview);
+}
+
+async function loadTransferOverview(host) {
+  try {
+    const articles = await API.loadTransferNews();
+    const result = await AI.overviewNews(articles);
+    const sources = articles
+      .slice(0, 4)
+      .map((article) => `<li>${escapeHtml(article.headline)}</li>`)
+      .join("");
+    host.innerHTML = `
+      <div class="intel-row">
+        <div>
+          <p class="intel-title">Overview</p>
+          <p class="intel-note overview-copy">${escapeHtml(result.text || "").replaceAll("\n", "<br>")}</p>
+          ${sources ? `<ul class="overview-sources">${sources}</ul>` : ""}
+          <p class="intel-note">${escapeHtml(result.source || "Derby AI")}</p>
+        </div>
+      </div>`;
+  } catch (err) {
+    host.innerHTML = `<div class="intel-row"><div><p class="intel-note">Couldn’t load transfer news. ${escapeHtml(err.message || err)}</p></div></div>`;
+  }
 }
 
 function teamRowButton(team, meta = "") {
@@ -448,7 +660,8 @@ function teamRowButton(team, meta = "") {
     selectedTeam = team;
     selectedPlayer = null;
     teamSearchQuery = "";
-    teamSearchResults = [];
+    teamSearchClubs = [];
+    teamSearchPlayers = [];
     if (els.teamSearchInput) els.teamSearchInput.value = "";
     renderTeams();
   });
@@ -469,24 +682,35 @@ function renderTeams() {
   const frag = document.createDocumentFragment();
 
   if (teamSearchLoading) {
-    els.teamsList.innerHTML = `<div class="loading">Searching the world…</div>`;
+    els.teamsList.innerHTML = `<div class="loading">Searching clubs and players…</div>`;
     return;
   }
 
-  if (teamSearchQuery && teamSearchResults.length) {
-    const title = document.createElement("p");
-    title.className = "group-title";
-    title.textContent = `Results for “${teamSearchQuery}”`;
-    const group = document.createElement("div");
-    group.className = "group";
-    teamSearchResults.forEach((team) => group.appendChild(teamRowButton(team, team.label || team.slug)));
-    frag.append(title, group);
+  if (teamSearchQuery && (teamSearchClubs.length || teamSearchPlayers.length)) {
+    if (teamSearchClubs.length) {
+      const title = document.createElement("p");
+      title.className = "group-title";
+      title.textContent = `Clubs · “${teamSearchQuery}”`;
+      const group = document.createElement("div");
+      group.className = "group";
+      teamSearchClubs.forEach((team) => group.appendChild(teamRowButton(team, team.label || team.slug)));
+      frag.append(title, group);
+    }
+    if (teamSearchPlayers.length) {
+      const title = document.createElement("p");
+      title.className = "group-title";
+      title.textContent = `Players · “${teamSearchQuery}”`;
+      const group = document.createElement("div");
+      group.className = "group";
+      teamSearchPlayers.forEach((player) => group.appendChild(playerSearchButton(player)));
+      frag.append(title, group);
+    }
     els.teamsList.replaceChildren(frag);
     return;
   }
 
-  if (teamSearchQuery && !teamSearchResults.length) {
-    els.teamsList.innerHTML = `<div class="group"><div class="empty">No clubs found for “${escapeHtml(teamSearchQuery)}”.</div></div>`;
+  if (teamSearchQuery && !teamSearchClubs.length && !teamSearchPlayers.length) {
+    els.teamsList.innerHTML = `<div class="group"><div class="empty">No clubs or players found for “${escapeHtml(teamSearchQuery)}”.</div></div>`;
     return;
   }
 
@@ -530,6 +754,44 @@ function renderTeams() {
   });
   frag.append(title, group);
   els.teamsList.replaceChildren(frag);
+}
+
+function playerSearchButton(hit) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "player-row";
+  const face = hit.headshot
+    ? `<span class="player-face"><img src="${escapeHtml(hit.headshot)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.classList.add('is-fallback');this.remove();" /></span>`
+    : `<span class="player-face is-fallback">${escapeHtml((hit.name || "?").charAt(0))}</span>`;
+  btn.innerHTML = `
+    ${face}
+    <div>
+      <div class="team-name">${hit.number ? `#${escapeHtml(hit.number)} ` : ""}${escapeHtml(hit.name)}</div>
+      <div class="team-meta">${escapeHtml(hit.positionName || hit.position || "Player")}${hit.teamName ? ` · ${escapeHtml(hit.teamName)}` : ""}</div>
+    </div>
+    <span class="chev">›</span>
+  `;
+  btn.addEventListener("click", () => {
+    selectedTeam = {
+      id: hit.teamId,
+      espnId: hit.teamId,
+      name: hit.teamName || "Club",
+      short: hit.teamShort,
+      logo: hit.teamLogo,
+      color: hit.teamColor,
+      slug: hit.leagueSlug || "eng.1",
+    };
+    selectedPlayer = {
+      id: hit.id,
+      name: hit.name,
+      number: hit.number,
+      position: hit.position,
+      positionName: hit.positionName,
+      headshot: hit.headshot,
+    };
+    renderTeams();
+  });
+  return btn;
 }
 
 function playerRowButton(player, team) {
@@ -1162,13 +1424,20 @@ document.querySelectorAll(".tab-bar .tab").forEach((tab) => {
       selectedTeam = null;
       selectedPlayer = null;
     }
+    if (tab.dataset.view === "matches") selectedMatch = null;
     showView(tab.dataset.view);
   });
 });
 
 els.navBack.addEventListener("click", () => {
+  if (currentView === "matches" && selectedMatch) {
+    selectedMatch = null;
+    renderMatches();
+    return;
+  }
   if (selectedPlayer) {
     selectedPlayer = null;
+    if (teamSearchQuery) selectedTeam = null;
     renderTeams();
     return;
   }
@@ -1204,16 +1473,23 @@ els.teamSearchForm?.addEventListener("submit", async (event) => {
   selectedPlayer = null;
   teamsLeagueId = null;
   if (q.length < 2) {
-    teamSearchResults = [];
+    teamSearchClubs = [];
+    teamSearchPlayers = [];
     renderTeams();
     return;
   }
   teamSearchLoading = true;
   renderTeams();
   try {
-    teamSearchResults = await API.searchTeams(q);
+    const [clubs, players] = await Promise.all([
+      API.searchTeams(q).catch(() => []),
+      API.searchPlayers(q).catch(() => []),
+    ]);
+    teamSearchClubs = clubs;
+    teamSearchPlayers = players;
   } catch (err) {
-    teamSearchResults = [];
+    teamSearchClubs = [];
+    teamSearchPlayers = [];
     console.warn(err);
   }
   teamSearchLoading = false;
