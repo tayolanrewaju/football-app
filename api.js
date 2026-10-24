@@ -811,6 +811,163 @@
       });
   }
 
+  function statMap(stats) {
+    const out = {};
+    for (const stat of stats || []) out[stat.name] = Number(stat.value) || 0;
+    return out;
+  }
+
+  function minuteFromClock(clock) {
+    const shown = String(clock?.displayValue || "");
+    const match = shown.match(/(\d+)/);
+    if (match) return Number(match[1]);
+    if (clock?.value != null) return Math.round(Number(clock.value) / 60);
+    return null;
+  }
+
+  function eventKind(event) {
+    const type = String(event.type?.text || "");
+    const text = String(event.text || "");
+    const blob = `${type} ${text}`.toLowerCase();
+    if (type.toLowerCase().includes("substitution") || /replaces/.test(blob)) return "sub";
+    if (blob.includes("own goal")) return "own-goal";
+    if (blob.includes("penalty") && blob.includes("save")) return "penalty-save";
+    if (blob.includes("penalty") && (blob.includes("miss") || blob.includes("off target"))) return "penalty-miss";
+    if (blob.includes("penalty") && (blob.includes("conced") || blob.includes("gives away"))) return "penalty-conceded";
+    if (blob.includes("penalty") && (blob.includes("wins") || blob.includes("earns"))) return "penalty-won";
+    if (type.toLowerCase().includes("goal") || event.scoringPlay) return "goal";
+    if (blob.includes("woodwork") || blob.includes("crossbar") || blob.includes("the post") || blob.includes("the bar")) return "woodwork";
+    return "";
+  }
+
+  async function loadMatchSheets(leagueId, eventId) {
+    const league = LEAGUES.find((item) => item.id === leagueId);
+    const slug = league?.slug || "eng.1";
+    const data = await fetchJson(
+      proxyUrl("site", `apis/site/v2/sports/soccer/${slug}/summary?event=${encodeURIComponent(eventId)}`)
+    );
+    const comp = data.header?.competitions?.[0] || {};
+    const home = (comp.competitors || []).find((side) => side.homeAway === "home");
+    const away = (comp.competitors || []).find((side) => side.homeAway === "away");
+    const label = `${away?.team?.shortDisplayName || away?.team?.abbreviation || "Away"} ${away?.score ?? ""}–${home?.score ?? ""} ${home?.team?.shortDisplayName || home?.team?.abbreviation || "Home"}`;
+    const events = (data.keyEvents || [])
+      .map((event) => {
+        const kind = eventKind(event);
+        if (!kind) return null;
+        const people = (event.participants || [])
+          .map((person) => ({
+            id: String(person.athlete?.id || ""),
+            name: person.athlete?.displayName || "",
+          }))
+          .filter((person) => person.id);
+        return {
+          kind,
+          minute: minuteFromClock(event.clock),
+          text: event.text || "",
+          outside: /outside (?:the |of the )?(?:penalty )?(?:box|area)/i.test(event.text || ""),
+          penalty: /penalty/i.test(`${event.type?.text || ""} ${event.text || ""}`),
+          people,
+        };
+      })
+      .filter(Boolean);
+
+    const players = [];
+    for (const block of data.rosters || []) {
+      for (const person of block.roster || []) {
+        const stats = statMap(person.stats);
+        const id = String(person.athlete?.id || "");
+        if (!id) continue;
+        let on = person.starter ? 0 : null;
+        let off = null;
+        for (const event of events) {
+          if (event.kind !== "sub" || event.minute == null) continue;
+          const [coming, going] = event.people;
+          if (coming?.id === id) on = event.minute;
+          if (going?.id === id) off = event.minute;
+        }
+        let minutes = 0;
+        if (on != null) minutes = Math.max(0, (off == null ? 90 : off) - on);
+        else if ((stats.appearances || 0) > 0) minutes = person.starter ? 90 : 1;
+        const name = person.athlete?.displayName || person.athlete?.fullName || "Player";
+        let assists = stats.goalAssists || 0;
+        let penaltyWon = 0;
+        let outsideBox = 0;
+        let woodwork = 0;
+        let penaltySaves = 0;
+        let penaltyMiss = 0;
+        let penaltyConceded = 0;
+        const lowerName = name.toLowerCase();
+        for (const event of events) {
+          if (event.kind === "goal" && event.penalty) {
+            const assisted = ((event.text.match(/assisted by ([^.]+)/i) || [])[1] || "").trim().toLowerCase();
+            if (assisted && (lowerName === assisted || lowerName.endsWith(` ${assisted}`) || assisted.endsWith(lowerName))) {
+              if (assists > 0) {
+                assists -= 1;
+                penaltyWon += 1;
+              }
+            }
+          }
+          const involved = event.people.some((one) => one.id === id);
+          if (!involved) continue;
+          if (event.kind === "goal" && event.outside && event.people[0]?.id === id) outsideBox += 1;
+          if (event.kind === "woodwork") woodwork += 1;
+          if (event.kind === "penalty-save") penaltySaves += 1;
+          if (event.kind === "penalty-miss") penaltyMiss += 1;
+          if (event.kind === "penalty-conceded") penaltyConceded += 1;
+          if (event.kind === "penalty-won") penaltyWon += 1;
+        }
+        const defensiveActions =
+          (stats.tackles || 0) +
+          (stats.interceptions || 0) +
+          (stats.totalClearances || 0) +
+          (stats.clearances || 0) +
+          (stats.blocks || 0) +
+          (stats.blockedShots || 0) +
+          (stats.recoveries || 0);
+        players.push({
+          id,
+          name,
+          position: person.position?.abbreviation || "",
+          slot: null,
+          headshot: person.athlete?.headshot?.href || `https://a.espncdn.com/i/headshots/soccer/players/full/${id}.png`,
+          starter: !!person.starter,
+          minutes,
+          goals: stats.totalGoals || 0,
+          assists,
+          saves: stats.saves || 0,
+          goalsConceded: stats.goalsConceded || 0,
+          shotsOnTarget: stats.shotsOnTarget || 0,
+          yellow: stats.yellowCards || 0,
+          red: stats.redCards || 0,
+          ownGoals: stats.ownGoals || 0,
+          outsideBox,
+          woodwork,
+          penaltySaves,
+          penaltyWon,
+          penaltyMiss,
+          penaltyConceded,
+          defensiveActions,
+        });
+      }
+    }
+    return {
+      id: String(eventId),
+      start: comp.date,
+      status: mapStatus(comp.status),
+      label,
+      players,
+    };
+  }
+
+  async function quoteFantasy(player) {
+    const params = new URLSearchParams({
+      name: player?.name || "",
+      club: player?.teamName || player?.club || "",
+      position: player?.position || player?.positionName || "",
+    });
+    return fetchJson(`/api/fantasy/quote?${params.toString()}`);
+  }
+
   window.NINETY_API = {
     LEAGUES,
     LEAGUE_LOGOS,
@@ -821,6 +978,8 @@
     loadSchedule,
     loadPlayerStats,
     loadMatchDetail,
+    loadMatchSheets,
+    quoteFantasy,
     loadTransferNews,
     buildFormation,
     searchTeams,

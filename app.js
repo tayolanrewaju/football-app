@@ -15,6 +15,7 @@ const TITLES = {
 const API = window.NINETY_API;
 const AI = window.NINETY_AI;
 const AUTH = window.NINETY_AUTH;
+const FANTASY = window.NINETY_FANTASY;
 const TRANSFERS = window.NINETY_DATA.transfers;
 
 let matchLeague = "all";
@@ -23,6 +24,15 @@ let teamsLeagueId = null;
 let selectedTeam = null;
 let selectedPlayer = null;
 let selectedMatch = null;
+let favMode = localStorage.getItem("ninety-fav-mode") || "following";
+let fantasySquad = loadJson("ninety-fantasy-v1", []);
+let fantasyPlayerId = null;
+let fantasyQuery = "";
+let fantasyHits = [];
+let fantasySearching = false;
+let fantasyPoints = null;
+let fantasyPointsKey = "";
+let fantasyLoading = false;
 let accountMode = "signin";
 let live = {
   leagues: API.LEAGUES.map((l) => ({ ...l, logo: null })),
@@ -211,8 +221,13 @@ function showView(name) {
 function updateNav() {
   const deepTeams = currentView === "teams" && (teamsLeagueId || selectedTeam || selectedPlayer);
   const deepMatch = currentView === "matches" && selectedMatch;
-  els.navBack.hidden = !(deepTeams || deepMatch);
-  if (deepMatch) {
+  const deepFantasy = currentView === "favourites" && favMode === "fantasy" && fantasyPlayerId;
+  els.navBack.hidden = !(deepTeams || deepMatch || deepFantasy);
+  if (deepFantasy) {
+    els.navTitle.textContent = fantasySquad.find((player) => player.id === fantasyPlayerId)?.name || "Player";
+  } else if (currentView === "favourites" && favMode === "fantasy") {
+    els.navTitle.textContent = "Fantasy";
+  } else if (deepMatch) {
     els.navTitle.textContent = "Match";
   } else if (currentView === "teams" && selectedPlayer) {
     els.navTitle.textContent = selectedPlayer.name || "Player";
@@ -1042,7 +1057,382 @@ async function renderPlayerDetail(player, team) {
   }
 }
 
+function saveFantasy() {
+  saveJson("ninety-fantasy-v1", fantasySquad);
+  fantasyPointsKey = "";
+}
+
+function money(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return `£${number.toFixed(1)}m`;
+}
+
+function faceMarkup(url, name, className = "player-face") {
+  const initial = escapeHtml((name || "?").trim().charAt(0) || "?");
+  if (!url) return `<span class="${className} is-fallback">${initial}</span>`;
+  return `<span class="${className}" data-initial="${initial}"><img src="${escapeHtml(url)}" alt="" referrerpolicy="no-referrer" onerror="const box=this.parentElement; box.classList.add('is-fallback'); box.textContent=box.dataset.initial || '?';" /></span>`;
+}
+
+function fantasySpent() {
+  return fantasySquad.reduce((sum, player) => sum + (Number(player.price) || 0), 0);
+}
+
+function fantasyPointsFor(id) {
+  return fantasyPoints?.players?.find((player) => player.id === id) || null;
+}
+
+function squadClubsMatch(match) {
+  return fantasySquad.some((player) => {
+    const club = String(player.club || "").toLowerCase();
+    if (!club) return false;
+    const home = String(match.home || "").toLowerCase();
+    const away = String(match.away || "").toLowerCase();
+    return home.includes(club) || away.includes(club) || club.includes(home) || club.includes(away);
+  });
+}
+
+function ensureFantasyPoints() {
+  if (!fantasySquad.length || !live.matches.length) {
+    fantasyPoints = FANTASY.weekPoints(fantasySquad, []);
+    return;
+  }
+  const matches = live.matches.filter(
+    (match) => match.status !== "Upcoming" && FANTASY.inThisWeek(match.start) && squadClubsMatch(match)
+  );
+  const key = `${fantasySquad.map((player) => player.id).join(",")}|${matches.map((match) => match.id).join(",")}`;
+  if (key === fantasyPointsKey) return;
+  fantasyPointsKey = key;
+  fantasyLoading = true;
+  Promise.all(matches.map((match) => API.loadMatchSheets(match.league, match.id).catch(() => null))).then((sheets) => {
+    if (fantasyPointsKey !== key) return;
+    fantasyPoints = FANTASY.weekPoints(
+      fantasySquad,
+      sheets.filter(Boolean)
+    );
+    fantasyLoading = false;
+    if (currentView === "favourites" && favMode === "fantasy") renderFavourites();
+  });
+}
+
+async function signFantasyPlayer(hit) {
+  if (fantasySquad.some((player) => player.id === hit.id)) return;
+  const quote = hit.quote || (await API.quoteFantasy(hit));
+  const slot = quote.slot || FANTASY.slotOf(hit.position || hit.positionName);
+  if (!FANTASY.canAdd(fantasySquad, slot)) return;
+  const price = Number(quote.price);
+  if (!Number.isFinite(price) || fantasySpent() + price > FANTASY.BUDGET + 0.001) return;
+  fantasySquad.push({
+    id: hit.id,
+    name: hit.name,
+    club: hit.teamName || "",
+    clubLogo: hit.teamLogo || "",
+    position: hit.positionName || hit.position || slot,
+    slot,
+    number: hit.number || "",
+    headshot: hit.headshot || "",
+    price,
+    estimated: !!quote.estimated,
+    sources: quote.sources || [],
+    xi: FANTASY.canStart(fantasySquad, slot),
+    captain: fantasySquad.length === 0,
+    vice: fantasySquad.length === 1,
+  });
+  saveFantasy();
+  renderFavourites();
+}
+
+function renderFantasyPlayer() {
+  const player = fantasySquad.find((item) => item.id === fantasyPlayerId);
+  if (!player) {
+    fantasyPlayerId = null;
+    renderFavourites();
+    return;
+  }
+  const scored = fantasyPointsFor(player.id);
+  els.favouritesList.innerHTML = `<div class="loading">Loading ${escapeHtml(player.name)}…</div>`;
+  updateNav();
+  API.loadPlayerStats(player.id, player)
+    .then((full) => {
+      if (fantasyPlayerId !== player.id) return;
+      const face = faceMarkup(full.headshot || player.headshot, full.name || player.name, "player-hero-face");
+      const lines = (scored?.breakdown || [])
+        .map(
+          (match) => `
+          <div class="setting-row">
+            <strong>${escapeHtml(match.match)}</strong><span>${match.points} pts</span>
+          </div>
+          ${match.lines
+            .map(
+              (line) =>
+                `<div class="setting-row fantasy-line"><span>${escapeHtml(line.label)}</span><span>${line.points > 0 ? "+" : ""}${line.points}</span></div>`
+            )
+            .join("")}`
+        )
+        .join("");
+      const sources = (player.sources || [])
+        .map(
+          (source) =>
+            `<div class="setting-row"><strong>${escapeHtml(source.game)}</strong><span>${escapeHtml(source.cost || "")}${
+              source.derby != null ? ` · ${money(source.derby)}` : ""
+            }</span></div>`
+        )
+        .join("");
+      els.favouritesList.innerHTML = `
+        <div class="group player-hero">
+          <div class="player-hero-top">
+            ${face}
+            <div>
+              <p class="player-number">${player.number ? `#${escapeHtml(player.number)}` : escapeHtml(player.slot)}</p>
+              <h2 class="player-hero-name">${escapeHtml(full.name || player.name)}</h2>
+              <p class="intel-note">${escapeHtml(full.positionName || player.position)}${
+                full.nationality ? ` · ${escapeHtml(full.nationality)}` : ""
+              }${full.age ? ` · Age ${escapeHtml(full.age)}` : ""}</p>
+              <p class="intel-note">${escapeHtml(player.club)}${full.height ? ` · ${escapeHtml(full.height)}` : ""}${
+                full.weight ? ` · ${escapeHtml(full.weight)}` : ""
+              }</p>
+              <p class="intel-note">${
+                { G: "Goalkeeper", D: "Defender", M: "Midfielder", A: "Attacker" }[player.slot] || "Player"
+              } · ${money(player.price)} · ${scored ? `${scored.points} pts` : "0 pts"}${
+                scored?.doubled ? " · captain" : ""
+              }</p>
+            </div>
+          </div>
+        </div>
+        <p class="group-title">This week</p>
+        <div class="group">${lines || `<div class="empty">No match points in this Derby week yet.</div>`}</div>
+        <p class="group-title">Price</p>
+        <div class="group">
+          ${sources || `<div class="empty">No fantasy listing.</div>`}
+          <div class="setting-row"><strong>Derby cost</strong><span>${money(player.price)}</span></div>
+        </div>
+        <div class="group fantasy-actions">
+          <button type="button" class="mini-btn" data-act="xi">${player.xi ? "Move to bench" : "Move to XI"}</button>
+          <button type="button" class="mini-btn" data-act="captain">Captain</button>
+          <button type="button" class="mini-btn" data-act="vice">Vice</button>
+          <button type="button" class="mini-btn" data-act="sell">Sell</button>
+        </div>
+      `;
+      els.favouritesList.querySelector("[data-act=xi]")?.addEventListener("click", () => {
+        if (player.xi) {
+          player.xi = false;
+          if (player.captain) player.captain = false;
+        } else {
+          const parked = fantasySquad.map((item) => (item.id === player.id ? { ...item, xi: false } : item));
+          if (FANTASY.canStart(parked, player.slot)) player.xi = true;
+        }
+        saveFantasy();
+        renderFavourites();
+      });
+      els.favouritesList.querySelector("[data-act=captain]")?.addEventListener("click", () => {
+        fantasySquad.forEach((item) => {
+          item.captain = item.id === player.id;
+          if (item.captain) item.vice = false;
+        });
+        player.xi = true;
+        saveFantasy();
+        renderFavourites();
+      });
+      els.favouritesList.querySelector("[data-act=vice]")?.addEventListener("click", () => {
+        fantasySquad.forEach((item) => {
+          item.vice = item.id === player.id;
+          if (item.vice) item.captain = false;
+        });
+        saveFantasy();
+        renderFavourites();
+      });
+      els.favouritesList.querySelector("[data-act=sell]")?.addEventListener("click", () => {
+        fantasySquad = fantasySquad.filter((item) => item.id !== player.id);
+        fantasyPlayerId = null;
+        saveFantasy();
+        updateNav();
+        renderFavourites();
+      });
+    })
+    .catch(() => {
+      els.favouritesList.innerHTML = `<div class="group"><div class="empty">Couldn’t load this player.</div></div>`;
+    });
+}
+
+function renderFantasy() {
+  ensureFantasyPoints();
+  if (fantasyPlayerId) {
+    renderFantasyPlayer();
+    return;
+  }
+  const left = FANTASY.BUDGET - fantasySpent();
+  const frag = document.createDocumentFragment();
+  const head = document.createElement("div");
+  head.className = "group fantasy-head";
+  head.innerHTML = `
+    <div class="fantasy-bank">
+      <strong>${money(left)}</strong>
+      <span>left of ${money(FANTASY.BUDGET)}</span>
+    </div>
+    <div class="fantasy-bank">
+      <strong>${fantasyLoading && !fantasyPoints ? "…" : fantasyPoints?.total ?? 0}</strong>
+      <span>points this week</span>
+    </div>
+  `;
+  frag.appendChild(head);
+
+  const search = document.createElement("form");
+  search.className = "team-search";
+  search.innerHTML = `
+    <label class="sr-only" for="fantasy-search">Search players</label>
+    <input id="fantasy-search" type="search" placeholder="Search any player…" value="${escapeHtml(fantasyQuery)}" autocomplete="off" />
+    <button type="submit" class="search-go">Search</button>
+  `;
+  search.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    fantasyQuery = search.querySelector("input").value.trim();
+    if (fantasyQuery.length < 2) {
+      fantasyHits = [];
+      renderFavourites();
+      return;
+    }
+    fantasySearching = true;
+    renderFavourites();
+    try {
+      const hits = await API.searchPlayers(fantasyQuery);
+      fantasyHits = await Promise.all(
+        hits.slice(0, 8).map(async (hit) => {
+          try {
+            return { ...hit, quote: await API.quoteFantasy(hit) };
+          } catch {
+            return { ...hit, quote: null };
+          }
+        })
+      );
+    } catch {
+      fantasyHits = [];
+    }
+    fantasySearching = false;
+    if (currentView === "favourites") renderFavourites();
+  });
+  frag.appendChild(search);
+
+  if (fantasySearching) {
+    const loading = document.createElement("div");
+    loading.className = "group";
+    loading.innerHTML = `<div class="loading">Looking up players and prices…</div>`;
+    frag.appendChild(loading);
+  } else if (fantasyHits.length) {
+    const title = document.createElement("p");
+    title.className = "group-title";
+    title.textContent = "Sign a player";
+    const group = document.createElement("div");
+    group.className = "group";
+    fantasyHits.forEach((hit) => {
+      const price = hit.quote?.price;
+      const slot = hit.quote?.slot || FANTASY.slotOf(hit.position);
+      const owned = fantasySquad.some((player) => player.id === hit.id);
+      const affordable = Number.isFinite(Number(price)) && fantasySpent() + Number(price) <= FANTASY.BUDGET + 0.001;
+      const room = FANTASY.canAdd(fantasySquad, slot);
+      const row = document.createElement("div");
+      row.className = "player-row fantasy-hit";
+      row.innerHTML = `
+        ${faceMarkup(hit.headshot, hit.name)}
+        <div>
+          <div class="team-name">${escapeHtml(hit.name)}</div>
+          <div class="team-meta">${escapeHtml(hit.positionName || hit.position || slot)}${hit.teamName ? ` · ${escapeHtml(hit.teamName)}` : ""} · ${
+            price == null ? "Price loading" : money(price)
+          }${hit.quote?.estimated ? " · estimated" : ""}</div>
+        </div>
+        <button type="button" class="mini-btn" ${owned || !affordable || !room ? "disabled" : ""}>${owned ? "Owned" : "Sign"}</button>
+      `;
+      row.querySelector("button").addEventListener("click", () => signFantasyPlayer(hit));
+      group.appendChild(row);
+    });
+    frag.append(title, group);
+  }
+
+  const xi = fantasySquad.filter((player) => player.xi);
+  const lines = [
+    ["A", "Attack"],
+    ["M", "Midfield"],
+    ["D", "Defence"],
+    ["G", "Goalkeeper"],
+  ];
+  const pitch = document.createElement("div");
+  pitch.className = "group pitch-wrap";
+  const pitchLines = lines
+    .map(([slot]) => {
+      const players = xi.filter((player) => player.slot === slot);
+      if (!players.length) return "";
+      return `<div class="pitch-line">${players
+        .map((player) => {
+          const scored = fantasyPointsFor(player.id);
+          return `<button type="button" class="pitch-player" data-id="${escapeHtml(player.id)}">
+            ${faceMarkup(player.headshot, player.name, "pitch-face")}
+            <span class="pitch-name">${escapeHtml(player.name.split(" ").slice(-1)[0])}${player.captain ? " (C)" : ""}${player.vice ? " (V)" : ""}</span>
+            <span class="pitch-meta">${scored ? `${scored.points} pts` : money(player.price)}</span>
+          </button>`;
+        })
+        .join("")}</div>`;
+    })
+    .join("");
+  pitch.innerHTML = `
+    <div class="pitch">
+      <div class="pitch-markings" aria-hidden="true"></div>
+      <p class="pitch-shape">${xi.length}/11</p>
+      ${pitchLines || `<p class="pitch-empty">Sign players to fill the pitch.</p>`}
+    </div>
+  `;
+  pitch.querySelectorAll("[data-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      fantasyPlayerId = btn.dataset.id;
+      updateNav();
+      renderFavourites();
+    });
+  });
+  frag.appendChild(pitch);
+
+  const bench = fantasySquad.filter((player) => !player.xi);
+  if (bench.length) {
+    const title = document.createElement("p");
+    title.className = "group-title";
+    title.textContent = "Bench";
+    const group = document.createElement("div");
+    group.className = "group";
+    bench.forEach((player) => {
+      const scored = fantasyPointsFor(player.id);
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "player-row";
+      row.innerHTML = `
+        ${faceMarkup(player.headshot, player.name)}
+        <div>
+          <div class="team-name">${escapeHtml(player.name)}</div>
+          <div class="team-meta">${escapeHtml(player.club)} · ${money(player.price)} · ${scored ? `${scored.points} pts` : "0 pts"}</div>
+        </div>
+        <span class="chev">›</span>
+      `;
+      row.addEventListener("click", () => {
+        fantasyPlayerId = player.id;
+        updateNav();
+        renderFavourites();
+      });
+      group.appendChild(row);
+    });
+    frag.append(title, group);
+  }
+
+  frag.insertBefore(pitch, search);
+  els.favouritesList.replaceChildren(frag);
+  const input = document.querySelector("#fantasy-search");
+  if (input && document.activeElement !== input) input.value = fantasyQuery;
+}
+
 function renderFavourites() {
+  document.querySelectorAll("#fav-modes [data-fav]").forEach((btn) => {
+    btn.classList.toggle("is-on", btn.dataset.fav === favMode);
+  });
+  if (favMode === "fantasy") {
+    renderFantasy();
+    return;
+  }
+  fantasyPlayerId = null;
   const frag = document.createDocumentFragment();
   const title = document.createElement("p");
   title.className = "group-title";
@@ -1434,11 +1824,17 @@ document.querySelectorAll(".tab-bar .tab").forEach((tab) => {
       selectedPlayer = null;
     }
     if (tab.dataset.view === "matches") selectedMatch = null;
+    if (tab.dataset.view === "favourites") fantasyPlayerId = null;
     showView(tab.dataset.view);
   });
 });
 
 els.navBack.addEventListener("click", () => {
+  if (currentView === "favourites" && fantasyPlayerId) {
+    fantasyPlayerId = null;
+    renderFavourites();
+    return;
+  }
   if (currentView === "matches" && selectedMatch) {
     selectedMatch = null;
     renderMatches();
@@ -1507,6 +1903,16 @@ els.teamSearchForm?.addEventListener("submit", async (event) => {
 
 window.addEventListener("ninety-auth", async () => {
   await afterAuthSuccess();
+});
+
+document.querySelectorAll("#fav-modes [data-fav]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    favMode = btn.dataset.fav;
+    localStorage.setItem("ninety-fav-mode", favMode);
+    fantasyPlayerId = null;
+    updateNav();
+    renderFavourites();
+  });
 });
 
 renderDate();

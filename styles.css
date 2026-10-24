@@ -737,7 +737,8 @@ button, input { font: inherit; color: inherit; }
   padding: 16px;
 }
 
-.player-hero-img {
+.player-hero-img,
+.player-hero-face {
   width: 72px;
   height: 72px;
   border-radius: 18px;
@@ -745,6 +746,17 @@ button, input { font: inherit; color: inherit; }
   background: #0a0e16;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--team-accent, #0057b8) 55%, transparent);
 }
+
+.player-hero-face {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  font-size: 28px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.player-hero-face img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 .player-number {
   margin: 0;
@@ -894,6 +906,70 @@ button, input { font: inherit; color: inherit; }
   color: #fff;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.28), 0 0 0 2px rgba(255, 255, 255, 0.35);
 }
+
+.pitch-face {
+  width: 42px;
+  height: 42px;
+  border-radius: 21px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.28), 0 0 0 2px rgba(255, 255, 255, 0.7);
+  font-weight: 800;
+  color: #fff;
+}
+
+.pitch-face img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.pitch-meta {
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.pitch-empty {
+  position: relative;
+  z-index: 1;
+  margin: 80px 16px;
+  text-align: center;
+  color: #fff;
+  font-weight: 700;
+}
+
+.fantasy-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.fantasy-bank {
+  display: grid;
+  gap: 2px;
+}
+
+.fantasy-bank strong {
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.fantasy-bank span {
+  color: var(--secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.fantasy-hit { cursor: default; }
+.fantasy-hit .mini-btn { justify-self: end; }
+.fantasy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+}
+.fantasy-line { padding-left: 28px; }
+.fantasy-line span:last-child { font-variant-numeric: tabular-nums; font-weight: 750; }
 
 .pitch-name {
   font-size: 10px;

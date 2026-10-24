@@ -78,6 +78,10 @@
           </section>
 
           <section id="favourites" class="screen" aria-label="Favourites">
+            <div class="seg scroll-seg" id="fav-modes" role="tablist" aria-label="Favourites">
+              <button type="button" class="seg-btn is-on" data-fav="following">Following</button>
+              <button type="button" class="seg-btn" data-fav="fantasy">Fantasy</button>
+            </div>
             <div id="favourites-list" class="scroll"></div>
           </section>
 
@@ -125,6 +129,7 @@
     <script src="api.js"></script>
     <script src="auth.js"></script>
     <script src="ai.js"></script>
+    <script src="fantasy.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

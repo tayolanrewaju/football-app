@@ -7,6 +7,7 @@ import json
 import mimetypes
 import os
 import secrets
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -15,6 +16,8 @@ import uuid
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+import fantasy_prices
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
@@ -151,6 +154,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.auth_logout()
         if parsed.path == "/api/ai/status":
             return self.ai_status()
+        if parsed.path == "/api/fantasy/quote":
+            return self.fantasy_quote(parsed)
         return super().do_GET()
 
     def do_POST(self):
@@ -499,6 +504,13 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
 
+    def fantasy_quote(self, parsed):
+        params = urllib.parse.parse_qs(parsed.query or "")
+        name = (params.get("name") or [""])[0]
+        club = (params.get("club") or [""])[0]
+        position = (params.get("position") or [""])[0]
+        return self.json_response(fantasy_prices.quote(name, club, position))
+
     def log_message(self, fmt, *args):
         msg = str(args[0] if args else "")
         if "/proxy/espn/" in msg:
@@ -511,6 +523,7 @@ if __name__ == "__main__":
         write_json(USERS_FILE, [])
     if not SESSIONS_FILE.exists():
         write_json(SESSIONS_FILE, {})
+    threading.Thread(target=fantasy_prices.warm, name="fantasy-prices", daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"NINETY server on http://localhost:{PORT}", flush=True)
     server.serve_forever()
