@@ -105,38 +105,69 @@ function syncFromAccount() {
   }
 }
 
-function crestVariant(sizeClass) {
-  const value = String(sizeClass || "");
-  if (value.includes("lg")) return "lg";
-  if (value.includes("xs")) return "xs";
-  if (value.includes("sm")) return "sm";
-  return "";
+function logoMarkup(url, fallbackText, color = "#333", sizeClass = "") {
+  const initials = String(fallbackText || "?")
+    .split(/\s+/)
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 3)
+    .toUpperCase();
+  const cls = `crest${sizeClass ? ` ${sizeClass}` : ""}${url ? " crest-img" : ""}`;
+  if (url) {
+    return `<span class="${cls}" style="--crest-fallback:${color}"><img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.parentElement.classList.add('is-fallback');this.remove();" /><span class="crest-fallback">${escapeHtml(initials)}</span></span>`;
+  }
+  return `<span class="${cls}" style="background:${color}">${escapeHtml(initials)}</span>`;
+}
+
+function findClub(name) {
+  const key = String(name || "").trim().toLowerCase();
+  if (!key) return null;
+  const aliases = {
+    "man city": "manchester city",
+    "man united": "manchester united",
+    "man utd": "manchester united",
+    psg: "paris saint-germain",
+    tottenham: "tottenham hotspur",
+    spurs: "tottenham hotspur",
+    barca: "barcelona",
+    bayern: "bayern munich",
+  };
+  const needle = aliases[key] || key;
+  const teams = live.teams || [];
+  return (
+    teams.find((t) => t.name.toLowerCase() === needle || t.name.toLowerCase() === key) ||
+    teams.find((t) => t.short && t.short.toLowerCase() === key) ||
+    teams.find((t) => {
+      const club = t.name.toLowerCase();
+      return needle.length >= 4 && club.length >= 4 && (club.includes(needle) || needle.includes(club));
+    }) ||
+    null
+  );
 }
 
 function crest(nameOrTeam, sizeClass = "") {
-  const variant = crestVariant(sizeClass);
-  const draw = window.NINETY_CREST;
-  if (!draw) return "";
-  if (!nameOrTeam) return draw("Club", variant);
+  if (!nameOrTeam) return logoMarkup(null, "?", "#333", sizeClass);
   if (typeof nameOrTeam === "object") {
-    return draw(nameOrTeam.name || nameOrTeam.short || "Club", variant, {
-      primary: nameOrTeam.color,
-      label: nameOrTeam.short || nameOrTeam.name,
-    });
+    return logoMarkup(nameOrTeam.logo, nameOrTeam.short || nameOrTeam.name, nameOrTeam.color, sizeClass);
   }
-  const team = live.teams.find((t) => t.name === nameOrTeam);
-  const match = live.matches.find((m) => m.home === nameOrTeam || m.away === nameOrTeam);
-  const color = team?.color || (match?.home === nameOrTeam ? match.homeColor : match?.awayColor);
-  return draw(nameOrTeam, variant, {
-    primary: color,
-    label: team?.short || nameOrTeam,
-  });
+  const team = findClub(nameOrTeam);
+  const matchLogo =
+    live.matches.find((m) => m.home === nameOrTeam)?.homeLogo ||
+    live.matches.find((m) => m.away === nameOrTeam)?.awayLogo;
+  const matchColor =
+    live.matches.find((m) => m.home === nameOrTeam)?.homeColor ||
+    live.matches.find((m) => m.away === nameOrTeam)?.awayColor;
+  return logoMarkup(
+    team?.logo || matchLogo,
+    team?.short || nameOrTeam,
+    team?.color || matchColor || "#333",
+    sizeClass
+  );
 }
 
-function leagueLogo(league, sizeClass) {
-  if (!league || !window.NINETY_LEAGUE_CREST) return "";
-  if (sizeClass == null) return window.NINETY_LEAGUE_CREST(league, "");
-  return window.NINETY_LEAGUE_CREST(league, crestVariant(sizeClass) || "xs");
+function leagueLogo(league, sizeClass = "") {
+  if (!league) return "";
+  return logoMarkup(league.logo, league.flag || league.name, "#1a5cff", sizeClass);
 }
 
 function statusClass(status) {
@@ -264,12 +295,14 @@ function renderMatchLeagueSeg() {
 function resolveMatchCrest(match, side) {
   const name = side === "home" ? match.home : match.away;
   const id = side === "home" ? match.homeId : match.awayId;
+  const logo = side === "home" ? match.homeLogo : match.awayLogo;
   const color = side === "home" ? match.homeColor : match.awayColor;
   const team = live.teams.find((t) => t.id === id || t.name === name);
-  return window.NINETY_CREST(name, "", {
-    primary: color || team?.color,
-    label: team?.short || name,
-  });
+  return logoMarkup(
+    logo || team?.logo || (id ? `https://a.espncdn.com/i/teamlogos/soccer/500/${id}.png` : null),
+    team?.short || name,
+    color || team?.color || "#333"
+  );
 }
 
 function renderMatches() {

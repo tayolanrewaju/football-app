@@ -27,6 +27,6 @@ window.NINETY_DATA = {
     "NINETY pulls live scores and squads through an ESPN proxy, then reasons across transfers, favourites, and search.",
     "The 2027 winter window is the first registration period of calendar 2027.",
     "Ask AI can combine live fixtures, world club search, rosters, and the 2027 transfer board in one answer.",
-    "Clubs are drawn as original shield badges: black outline, gold rim, stripes, and a football.",
+    "Club badges are the current marks each club uses.",
   ],
 };

@@ -381,42 +381,36 @@ button, input { font: inherit; color: inherit; }
 }
 
 .crest {
-  width: 36px;
-  height: 44px;
-  border-radius: 11px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   display: grid;
   place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
   flex-shrink: 0;
   overflow: hidden;
-  background: #f4efe4;
-  box-shadow:
-    inset 0 0 0 1px rgba(228, 197, 106, 0.95),
-    0 1px 2px rgba(0, 0, 0, 0.28);
+  background: rgba(255, 255, 255, 0.08);
   position: relative;
 }
 
-.crest-sm { width: 32px; height: 40px; border-radius: 10px; }
-.crest-xs { width: 22px; height: 28px; border-radius: 7px; }
-.crest-lg { width: 76px; height: 94px; border-radius: 18px; }
-
-.crest-svg {
-  display: block;
-  width: 88%;
-  height: 92%;
-}
+.crest-sm { width: 32px; height: 32px; }
+.crest-xs { width: 20px; height: 20px; border-radius: 6px; font-size: 7px; }
+.crest-lg { width: 56px; height: 56px; border-radius: 14px; }
 
 .crest-img {
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 .crest-img img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
-  padding: 0;
+  padding: 2px;
   display: block;
-  transform: scale(1.08);
+  box-sizing: border-box;
 }
 
 .crest-fallback {
