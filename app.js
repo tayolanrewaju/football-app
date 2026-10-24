@@ -563,6 +563,13 @@ function renderMatches() {
   refresh.addEventListener("click", () => bootstrapLive());
   frag.appendChild(refresh);
   els.matchesList.replaceChildren(frag);
+  const today = [...els.matchesList.querySelectorAll(".group-title")].find((heading) =>
+    heading.textContent.startsWith("Today")
+  );
+  if (today) {
+    const top = today.getBoundingClientRect().top - els.matchesList.getBoundingClientRect().top + els.matchesList.scrollTop;
+    els.matchesList.scrollTop = Math.max(0, top - 8);
+  }
 }
 
 function transferStatusClass(status) {
@@ -988,7 +995,9 @@ async function renderPlayerDetail(player, team) {
           <p class="intel-note">${escapeHtml(full.positionName || full.position || "")}${
             full.nationality ? ` · ${escapeHtml(full.nationality)}` : ""
           }${full.age ? ` · Age ${escapeHtml(full.age)}` : ""}</p>
-          <p class="intel-note">${escapeHtml(team.name)}${full.height ? ` · ${escapeHtml(full.height)}` : ""}</p>
+          <p class="intel-note">${escapeHtml(team.name)}${full.height ? ` · ${escapeHtml(full.height)}` : ""}${
+            full.weight ? ` · ${escapeHtml(full.weight)}` : ""
+          }</p>
         </div>
       </div>
       <div class="stat-grid">

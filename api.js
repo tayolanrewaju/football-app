@@ -527,6 +527,7 @@
       base.positionName = athlete.position?.displayName || base.positionName;
       base.age = athlete.age || base.age;
       base.height = athlete.displayHeight || base.height;
+      base.weight = athlete.displayWeight || base.weight;
       base.nationality = athlete.citizenship || base.nationality;
       base.headshot =
         athlete.headshot?.href ||
@@ -535,8 +536,35 @@
       base.teamName = athlete.team?.displayName || base.teamName || "";
     }
 
+    const clubSlugs = ["eng.1", "esp.1", "ita.1", "ger.1", "fra.1", "usa.1", "ned.1", "por.1"];
+    const splitList = Array.isArray(overview?.statistics?.splits) ? overview.statistics.splits : [];
+    const chosenSplit =
+      splitList.find((split) => clubSlugs.includes(split.leagueSlug)) ||
+      [...splitList].sort((a, b) => Number(b.stats?.[0] || 0) - Number(a.stats?.[0] || 0))[0];
+    if (chosenSplit?.stats?.length && overview?.statistics?.names) {
+      const names = overview.statistics.names;
+      const labels = overview.statistics.displayNames || overview.statistics.labels || names;
+      base.stats = names.map((name, i) => ({
+        category: chosenSplit.displayName || "Season",
+        name,
+        label: labels[i] || name,
+        short: overview.statistics.labels?.[i] || name,
+        value: chosenSplit.stats[i],
+        raw: Number(chosenSplit.stats[i]) || 0,
+      }));
+      base.seasonLabel = chosenSplit.displayName || "This season";
+      base.appearances = pickStat(base.stats, ["appearances", "starts"]) || base.appearances;
+      base.goals = pickStat(base.stats, "totalGoals") || base.goals;
+      base.assists = pickStat(base.stats, ["goalAssists", "assists"]) || base.assists;
+      base.yellowCards = pickStat(base.stats, "yellowCards") || base.yellowCards;
+      base.redCards = pickStat(base.stats, "redCards") || base.redCards;
+      base.saves = pickStat(base.stats, "saves") || base.saves;
+      base.shots = pickStat(base.stats, "totalShots") || base.shots;
+      base.shotsOnTarget = pickStat(base.stats, ["shotsOnTarget", "shotsOnGoal"]) || base.shotsOnTarget;
+    }
+
     // Prefer overview season split stats when richer
-    const splitStats = overview?.statistics?.splits?.categories
+    const splitStats = !base.stats?.length && overview?.statistics?.splits?.categories
       ? flattenStats(overview.statistics)
       : null;
     if (splitStats?.length) {
@@ -549,7 +577,7 @@
       base.saves = pickStat(splitStats, "saves") || base.saves;
       base.shots = pickStat(splitStats, "totalShots") || base.shots;
       base.shotsOnTarget = pickStat(splitStats, "shotsOnTarget") || base.shotsOnTarget;
-    } else if (overview?.statistics?.names && overview?.statistics?.splits) {
+    } else if (!base.stats?.length && overview?.statistics?.names && overview?.statistics?.splits) {
       // Compact overview format: names + splits.categories[].stats as parallel arrays sometimes
       const names = overview.statistics.names || [];
       const labels = overview.statistics.displayNames || overview.statistics.labels || names;
@@ -571,7 +599,7 @@
       base.stats = fallbackPlayer.stats;
     }
 
-    base.seasonLabel = "This season";
+    if (!base.seasonLabel) base.seasonLabel = "This season";
     cache.players[id] = base;
     return base;
   }
