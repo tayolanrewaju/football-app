@@ -141,9 +141,9 @@
       .replace(/[^A-Z0-9 ]/g, "")
       .trim();
     const compact = text.replace(/\s+/g, "");
-    if (variant === "lg") return (compact.length <= 11 ? compact : compact.slice(0, 3)) || "FC";
-    if (variant === "xs") return compact.slice(0, 3) || "FC";
-    return (compact.length <= 4 ? compact : compact.slice(0, 3)) || "FC";
+    const limit = variant === "lg" ? 11 : variant === "sm" ? 7 : variant === "xs" ? 3 : 8;
+    if (!compact) return "FC";
+    return compact.length <= limit ? compact : compact.slice(0, 3);
   }
 
   function markup(spec, variant) {

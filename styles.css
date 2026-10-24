@@ -98,6 +98,20 @@ button, input { font: inherit; color: inherit; }
   z-index: 5;
 }
 
+.nav-brand {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.app-badge {
+  width: 36px;
+  height: 46px;
+  display: block;
+  flex-shrink: 0;
+  margin-bottom: 2px;
+}
+
 .back-btn {
   border: 0;
   background: transparent;
@@ -364,17 +378,17 @@ button, input { font: inherit; color: inherit; }
 }
 
 .crest {
-  width: 38px;
-  height: 48px;
+  width: 56px;
+  height: 70px;
   display: block;
   flex-shrink: 0;
   background: transparent;
   overflow: visible;
 }
 
-.crest-sm { width: 32px; height: 40px; }
-.crest-xs { width: 22px; height: 28px; }
-.crest-lg { width: 96px; height: 120px; }
+.crest-sm { width: 44px; height: 55px; }
+.crest-xs { width: 26px; height: 32px; }
+.crest-lg { width: 112px; height: 140px; }
 
 .crest-svg {
   display: block;
