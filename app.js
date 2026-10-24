@@ -69,16 +69,12 @@ function persist() {
   saveJson(KEYS.alerts, alertSettings);
 }
 
-function crest(teamName) {
+function crest(teamName, variant) {
+  if (window.NINETY_CREST) return window.NINETY_CREST(teamName, variant);
   const team = DATA.teamByName[teamName] || DATA.teams.find((t) => t.name === teamName);
   const color = team?.color || "#8e8e93";
-  const initials = (team?.short || teamName)
-    .split(/\s+/)
-    .map((p) => p[0])
-    .join("")
-    .slice(0, 3)
-    .toUpperCase();
-  return `<span class="crest" style="background:${color}">${escapeHtml(initials.slice(0, 3))}</span>`;
+  const initials = (team?.short || teamName).slice(0, 3).toUpperCase();
+  return `<span class="crest" style="background:${color}">${escapeHtml(initials)}</span>`;
 }
 
 function statusClass(status) {
@@ -302,7 +298,7 @@ function renderTeams() {
       btn.type = "button";
       btn.className = "team-row";
       btn.innerHTML = `
-        <span class="crest league-crest">${escapeHtml(league.flag)}</span>
+        ${window.NINETY_LEAGUE_CREST ? window.NINETY_LEAGUE_CREST(league) : crest(league.flag)}
         <div>
           <div class="team-name">${escapeHtml(league.name)}</div>
           <div class="team-meta">${count} clubs · ${escapeHtml(league.country)}</div>
@@ -328,7 +324,7 @@ function renderTeamDetail(teamId) {
   header.className = "group";
   header.innerHTML = `
     <div class="fav-row">
-      ${crest(team.name)}
+      ${crest(team.name, "lg")}
       <div>
         <div class="team-name">${escapeHtml(team.name)}</div>
         <div class="team-meta">${escapeHtml(DATA.leagueById[team.league]?.name || "")} · Est. ${team.founded}</div>

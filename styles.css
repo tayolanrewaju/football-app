@@ -309,15 +309,28 @@ input {
 }
 
 .crest {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  display: grid;
-  place-items: center;
-  font-size: 11px;
-  font-weight: 800;
-  color: #fff;
+  width: 32px;
+  height: 40px;
+  display: block;
   flex-shrink: 0;
+  background: transparent;
+}
+
+.crest-lg {
+  width: 78px;
+  height: 98px;
+}
+
+.crest-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.crest-lg + div .team-name {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
 }
 
 .score-stack {
@@ -412,6 +425,7 @@ input {
 .team-row {
   grid-template-columns: auto 1fr auto;
   align-items: center;
+  gap: 12px;
   width: 100%;
   border: 0;
   text-align: left;
@@ -441,6 +455,7 @@ input {
 .fav-row {
   grid-template-columns: auto 1fr auto;
   align-items: center;
+  gap: 12px;
 }
 
 .star-btn {
@@ -579,9 +594,7 @@ input {
 }
 
 .league-crest {
-  font-size: 9px !important;
-  letter-spacing: -0.04em;
-  background: #1c1c1e !important;
+  background: transparent;
 }
 
 .fav-card {
