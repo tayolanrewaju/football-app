@@ -43,6 +43,7 @@
   function go(next) {
     screen = next;
     render(ctx);
+    root.updateNav?.();
   }
 
   function persist() {
@@ -513,7 +514,7 @@
 
   function pageTeam() {
     const stamp = deadlineStamp();
-    const pickWhen = new Date();
+    const pickWhen = stamp.deadline ? new Date(stamp.deadline) : new Date();
     const shape = GAME().FORMATIONS[state.formation] || GAME().FORMATIONS["4-3-3"];
     const rank = { G: 0, D: 1, M: 2, A: 3 };
     const xi = state.squad.filter((player) => player.xi);
@@ -1026,6 +1027,19 @@
     ["brighton", "BHA"],
     ["bournemouth", "BOU"],
     ["brentford", "BRE"],
+    ["coventry", "COV"],
+    ["ipswich", "IPS"],
+    ["leicester", "LEI"],
+    ["southampton", "SOU"],
+    ["sunderland", "SUN"],
+    ["leeds", "LEE"],
+    ["hull", "HUL"],
+    ["burnley", "BUR"],
+    ["luton", "LUT"],
+    ["bayern", "BAY"],
+    ["dortmund", "BVB"],
+    ["villarreal", "VIL"],
+    ["stuttgart", "VFB"],
     ["liverpool", "LIV"],
     ["arsenal", "ARS"],
     ["chelsea", "CHE"],
@@ -1080,7 +1094,8 @@
 
   function fixtureText(player, when = viewedWhen()) {
     const info = GAME().difficulty(ctx.matches || [], player.club, when);
-    const game = info.fixtures?.[0];
+    const games = info.fixtures || [];
+    const game = games.find((item) => item.league === "pl") || games[0];
     if (!game) return "—";
     return `${shortClub(game.opponent)} (${game.atHome ? "H" : "A"})`;
   }
@@ -1916,8 +1931,9 @@
     title: () => ({ compare: "Compare", h2h: "Head to head", cup: "Cup", draft: "Draft", planner: "Planner", admin: "Admin", alerts: "Notifications", season: "Season", profile: "Player", league: "League", pick: "Pick Team", prices: "Price Changes", pieces: "Set Piece Takers", more: "More" }[screen] || PAGES.find((page) => page[0] === screen)?.[1] || "Fantasy"),
     back() {
       if (screen === "home") return false;
-      screen = screen === "profile" || screen === "league" || screen === "h2h" || screen === "cup" ? "home" : "home";
+      screen = "home";
       if (ctx) render(ctx);
+      root.updateNav?.();
       return true;
     },
   };

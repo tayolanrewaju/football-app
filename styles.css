@@ -2210,3 +2210,34 @@ html[data-theme="light"] body {
   padding: 4px 8px;
   font-size: 12px;
 }
+
+.is-pick .gw-head { padding: 0 12px; }
+.is-pick .gw-titles h2 { font-size: 18px; line-height: 1.1; }
+.is-pick .pick-deadline { margin: 2px 12px 0; font-size: 13px; }
+
+.is-pick .pick-chips {
+  gap: 6px;
+  padding: 4px 10px 0;
+}
+
+.is-pick .pick-chip {
+  padding: 4px 2px 5px;
+  gap: 1px;
+  border-radius: 14px;
+}
+
+.is-pick .pick-chip svg {
+  width: 26px;
+  height: 26px;
+}
+
+.is-pick .pick-chip strong {
+  min-height: 22px;
+  font-size: 10px;
+}
+
+.is-pick .gw-tools { padding: 4px 12px; }
+.is-pick .gw-pitch { padding-bottom: 2px; }
+.is-pick .gw-line { padding-top: 0; }
+.is-pick .gw-sky span { padding: 4px 8px 3px; }
+.is-pick .gw-bench { padding: 1px 6px 4px; }

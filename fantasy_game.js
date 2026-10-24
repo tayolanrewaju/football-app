@@ -341,18 +341,32 @@
     return 3;
   }
 
+  function sameClub(left, right) {
+    const a = String(left || "").toLowerCase();
+    const b = String(right || "").toLowerCase();
+    if (!a || !b) return false;
+    if (a.includes(b) || b.includes(a)) return true;
+    const groups = [
+      ["man utd", "manchester united", "manchester utd"],
+      ["man city", "manchester city"],
+      ["spurs", "tottenham"],
+      ["nott'm forest", "nottm forest", "nottingham"],
+      ["wolves", "wolverhampton"],
+    ];
+    return groups.some((group) => group.some((name) => a.includes(name)) && group.some((name) => b.includes(name)));
+  }
+
   function difficulty(matches, club, now = new Date()) {
-    const name = String(club || "").toLowerCase();
-    const games = fixturesFor(matches, now).filter((match) => String(match.home).toLowerCase().includes(name) || String(match.away).toLowerCase().includes(name));
+    const games = fixturesFor(matches, now).filter((match) => sameClub(match.home, club) || sameClub(match.away, club));
     if (!games.length) return { label: "Blank", games: 0, rating: 0, fixtures: [] };
     const fixtures = games.map((match) => {
       const home = String(match.home);
       const away = String(match.away);
-      const atHome = home.toLowerCase().includes(name);
+      const atHome = sameClub(home, club);
       const opponent = atHome ? away : home;
       let rating = rateOpponent(opponent);
       if (atHome) rating = Math.max(1, rating - 1);
-      return { opponent, atHome, rating, status: match.status, id: match.id };
+      return { opponent, atHome, rating, status: match.status, id: match.id, league: match.league || "" };
     });
     const rating = Math.max(1, Math.round(fixtures.reduce((sum, game) => sum + game.rating, 0) / fixtures.length));
     return { label: games.length > 1 ? "Double" : "Single", games: games.length, rating, fixtures };
@@ -492,6 +506,13 @@
     if (byId.cb.slot !== "D" || !byId.cb.xi) throw new Error("defender seat");
     if (byId.wg.slot !== "A" || !byId.wg.xi) throw new Error("winger seat");
     if (byId.gk2.slot !== "G" || byId.gk2.xi) throw new Error("second keeper should be benched");
+    const week = new Date("2026-10-26T12:00:00Z");
+    const utd = difficulty([{ home: "Manchester United", away: "Chelsea", start: "2026-10-31T14:00:00Z", league: "pl" }], "Man Utd", week);
+    if (utd.fixtures[0]?.opponent !== "Chelsea" || utd.fixtures[0]?.league !== "pl") throw new Error(`man utd fixture ${utd.fixtures[0]?.opponent}`);
+    const forest = difficulty([{ home: "Brentford", away: "Nottingham Forest", start: "2026-10-31T14:00:00Z", league: "pl" }], "Nott'm Forest", week);
+    if (forest.fixtures[0]?.opponent !== "Brentford" || forest.fixtures[0]?.atHome) throw new Error("forest fixture");
+    const city = difficulty([{ home: "Manchester United", away: "Chelsea", start: "2026-10-31T14:00:00Z", league: "pl" }], "Man City", week);
+    if (city.fixtures.length) throw new Error("man city should not match man utd");
     state.chipThisWeek = "wildcard1";
     if (hit(state) !== 0) throw new Error("wildcard hit");
     console.log("fantasy game self-test ok");
