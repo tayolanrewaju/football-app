@@ -38,7 +38,49 @@
       .join("\n");
   }
 
-  async function research(raw, ctx = {}) {
+  function buildContext(ctx = {}) {
+    const matches = ctx.matches || [];
+    const favorites = ctx.favorites || [];
+    const transfers = ctx.transfers || window.NINETY_DATA?.transfers || [];
+    const liveNow = matches.filter((m) => m.status === "Live").slice(0, 8);
+    const upcoming = matches.filter((m) => m.status === "Upcoming").slice(0, 10);
+    const bits = [];
+    if (favorites.length) bits.push(`Favourites: ${favorites.join(", ")}`);
+    if (liveNow.length) bits.push(`Live scores:\n${scoreLines(liveNow)}`);
+    if (upcoming.length) bits.push(`Upcoming:\n${scoreLines(upcoming)}`);
+    if (transfers.length) bits.push(`Transfer board:\n${transferLines(transfers.slice(0, 8))}`);
+    return bits.join("\n\n");
+  }
+
+  async function askChatGPT(raw, ctx = {}) {
+    const res = await fetch("/api/ai/chat", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        question: String(raw || "").trim(),
+        context: buildContext(ctx),
+      }),
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+    if (!res.ok) {
+      const err = new Error((data && data.error) || `ChatGPT request failed (${res.status})`);
+      err.needsKey = !!(data && data.needsKey);
+      throw err;
+    }
+    return {
+      text: data.text,
+      source: data.source || "ChatGPT",
+      model: data.model,
+    };
+  }
+
+  async function researchLocal(raw, ctx = {}) {
     const q = normalize(raw);
     const favorites = ctx.favorites || [];
     const matches = ctx.matches || [];
@@ -49,18 +91,16 @@
 
     if (!q) {
       return {
-        text: "Ask me anything football — I’ll check live scores, world clubs, squads, and the 2027 transfer board together.",
-        source: "NINETY AI",
+        text: "Ask me anything football — with ChatGPT connected I’ll answer faster and smarter. Add your OpenAI API key in Account.",
+        source: "Derby AI",
       };
     }
 
-    // Intent flags
     const wantsLive = includesAny(q, ["live", "score", "scores", "fixture", "fixtures", "match", "matches", "playing", "upcoming", "next game", "kickoff"]);
     const wantsTransfers = includesAny(q, ["transfer", "signing", "window", "deal", "rumour", "rumor", "buy", "sold", "fee"]);
     const wantsSquad = includesAny(q, ["lineup", "squad", "roster", "xi", "players", "coach", "manager", "form", "about", "tell me"]);
     const wantsFavs = includesAny(q, ["favourite", "favorite", "following", "my team", "my clubs"]);
 
-    // Resolve club mentions via local list OR world search
     let team = findTeam(q, teams);
     let searched = [];
     if (!team && API?.searchTeams) {
@@ -83,7 +123,6 @@
       }
     }
 
-    // Enrich from multiple DBs when we have a club
     let detail = null;
     let roster = null;
     let schedule = null;
@@ -102,13 +141,12 @@
       }
     }
 
-    // Build a composed answer like an assistant, not a single-index lookup
     const sections = [];
 
     if (includesAny(q, ["hello", "hi", "hey", "who are you", "help"])) {
       return {
-        text: "I’m NINETY AI. I don’t just keyword-match — I check live ESPN scores, world club search, squads/form, your favourites, and the 2027 transfer board, then stitch an answer. Try “What’s coming up in the Premier League?” or “Tell me about Ajax”.",
-        source: "NINETY AI",
+        text: "I’m Derby Ask AI. Connect ChatGPT in Account for the best answers — otherwise I still check live ESPN scores, clubs, and the 2027 board.",
+        source: "Derby AI",
       };
     }
 
@@ -120,7 +158,7 @@
       }
       if (team) {
         const local = matches.filter((m) => m.home === team.name || m.away === team.name);
-        const fromSchedule = (schedule?.upcoming || []).map((m) => ({ ...m, home: m.home, away: m.away }));
+        const fromSchedule = schedule?.upcoming || [];
         list = local.length ? local : fromSchedule;
         if (!list.length && schedule?.lastFive?.length) {
           sections.push(
@@ -182,7 +220,6 @@
     }
 
     if (!sections.length) {
-      // Broad multi-source fallback
       const liveNow = matches.filter((m) => m.status === "Live").slice(0, 5);
       const upcoming = matches.filter((m) => m.status === "Upcoming").slice(0, 5);
       if (liveNow.length) sections.push(`Live right now:\n${scoreLines(liveNow)}`);
@@ -197,21 +234,33 @@
     const footer = notes.length ? `\n\nSources checked: ${[...new Set(notes)].join(", ")}.` : "";
     return {
       text: sections.join("\n\n") + footer,
-      source: "NINETY AI",
+      source: "Derby AI",
     };
   }
 
-  // Back-compat sync wrapper
-  function answerQuestion(raw, ctx = {}) {
-    // sync fallback if caller doesn't await
+  async function research(raw, ctx = {}) {
+    try {
+      return await askChatGPT(raw, ctx);
+    } catch (err) {
+      const local = await researchLocal(raw, ctx);
+      if (err.needsKey) {
+        return {
+          text: `${local.text}\n\n—\nChatGPT isn’t connected yet. Open Account → paste your OpenAI API key to route Ask AI through ChatGPT for better answers.`,
+          source: local.source,
+        };
+      }
+      return {
+        text: `${local.text}\n\n—\nChatGPT fallback: ${err.message || err}`,
+        source: local.source,
+      };
+    }
+  }
+
+  function answerQuestion(raw) {
     const q = normalize(raw);
-    if (!q) return { text: "Ask me anything football.", source: "NINETY AI" };
-    return {
-      text: "Thinking across live scores, clubs, and transfers…",
-      source: "NINETY AI",
-      async: true,
-    };
+    if (!q) return { text: "Ask me anything football.", source: "Derby AI" };
+    return { text: "Thinking…", source: "Derby AI", async: true };
   }
 
-  window.NINETY_AI = { answerQuestion, research, normalize, findTeam };
+  window.NINETY_AI = { answerQuestion, research, askChatGPT, normalize, findTeam };
 })();

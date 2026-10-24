@@ -267,16 +267,43 @@
     return teams;
   }
 
-  async function loadLeagueMatches(league) {
-    const dates = upcomingDateKeys(18);
+  function sortMatches(list) {
+    return [...list].sort((a, b) => {
+      const rank = (s) => (s === "Live" ? 0 : s === "Upcoming" ? 1 : 2);
+      const ra = rank(a.status) - rank(b.status);
+      if (ra) return ra;
+      return String(a.start || "").localeCompare(String(b.start || ""));
+    });
+  }
+
+  function enrichMatchLogos(leagueId, matches) {
+    const teams = cache.teamsByLeague[leagueId] || [];
+    const byTeamId = new Map(teams.map((t) => [t.id, t]));
+    for (const match of matches) {
+      const home = byTeamId.get(match.homeId);
+      const away = byTeamId.get(match.awayId);
+      if (!match.homeLogo && home) match.homeLogo = home.logo;
+      if (!match.awayLogo && away) match.awayLogo = away.logo;
+      if (!match.homeLogo && match.homeId) {
+        match.homeLogo = `https://a.espncdn.com/i/teamlogos/soccer/500/${match.homeId}.png`;
+      }
+      if (!match.awayLogo && match.awayId) {
+        match.awayLogo = `https://a.espncdn.com/i/teamlogos/soccer/500/${match.awayId}.png`;
+      }
+      if (home?.color) match.homeColor = home.color;
+      if (away?.color) match.awayColor = away.color;
+    }
+    return matches;
+  }
+
+  async function fetchScoreboardBags(league, dateKeys) {
     const urls = [
       proxyUrl("site", `apis/site/v2/sports/soccer/${league.slug}/scoreboard`),
-      ...dates.map((d) =>
+      ...dateKeys.map((d) =>
         proxyUrl("site", `apis/site/v2/sports/soccer/${league.slug}/scoreboard?dates=${d}`)
       ),
     ];
-
-    const bags = await Promise.all(
+    return Promise.all(
       urls.map(async (url) => {
         try {
           return await fetchJson(url);
@@ -285,7 +312,9 @@
         }
       })
     );
+  }
 
+  function collectEvents(league, bags) {
     const byId = new Map();
     for (const data of bags) {
       if (!data) continue;
@@ -299,66 +328,103 @@
         byId.set(String(event.id), mapEvent(event, league.id));
       }
     }
-
     cache.leagueMeta[league.id] = {
       ...league,
       ...(cache.leagueMeta[league.id] || {}),
       logo: LEAGUE_LOGOS[league.id] || cache.leagueMeta[league.id]?.logo || null,
     };
+    return enrichMatchLogos(league.id, sortMatches([...byId.values()]));
+  }
 
-    // Enrich logos from loaded teams when scoreboard omitted them
-    const teams = cache.teamsByLeague[league.id] || [];
-    const byTeamId = new Map(teams.map((t) => [t.id, t]));
-    for (const match of byId.values()) {
-      const home = byTeamId.get(match.homeId);
-      const away = byTeamId.get(match.awayId);
-      if (!match.homeLogo && home) match.homeLogo = home.logo;
-      if (!match.awayLogo && away) match.awayLogo = away.logo;
-      if (home?.color) match.homeColor = home.color;
-      if (away?.color) match.awayColor = away.color;
-    }
-
-    const matches = [...byId.values()].sort((a, b) => {
-      const rank = (s) => (s === "Live" ? 0 : s === "Upcoming" ? 1 : 2);
-      const ra = rank(a.status) - rank(b.status);
-      if (ra) return ra;
-      return String(a.start || "").localeCompare(String(b.start || ""));
-    });
+  /** Fast path: today's board only (one request per league). */
+  async function loadLeagueMatchesToday(league) {
+    const bags = await fetchScoreboardBags(league, []);
+    const matches = collectEvents(league, bags);
     cache.matchesByLeague[league.id] = matches;
     return matches;
   }
 
-  async function loadAll() {
-    const teams = [];
-    const matches = [];
+  /** Extend with the next few days (kept small for speed). */
+  async function loadLeagueMatches(league, { days = 7 } = {}) {
+    const dates = upcomingDateKeys(days);
+    const bags = await fetchScoreboardBags(league, dates);
+    const matches = collectEvents(league, bags);
+    cache.matchesByLeague[league.id] = matches;
+    return matches;
+  }
+
+  async function loadMatchesQuick() {
     const leagues = [];
+    const matches = [];
     const results = await Promise.all(
       LEAGUES.map(async (league) => {
         try {
-          const leagueTeams = await loadLeagueTeams(league);
-          const leagueMatches = await loadLeagueMatches(league);
+          const leagueMatches = await loadLeagueMatchesToday(league);
           return {
             league: cache.leagueMeta[league.id] || { ...league, logo: LEAGUE_LOGOS[league.id] },
-            teams: leagueTeams,
             matches: leagueMatches,
           };
         } catch (err) {
-          console.warn("Failed league", league.id, err);
-          return {
-            league: { ...league, logo: LEAGUE_LOGOS[league.id] },
-            teams: [],
-            matches: [],
-          };
+          console.warn("Failed quick matches", league.id, err);
+          return { league: { ...league, logo: LEAGUE_LOGOS[league.id] }, matches: [] };
         }
       })
     );
-
     for (const row of results) {
       leagues.push(row.league);
-      teams.push(...row.teams);
       matches.push(...row.matches);
     }
-    return { leagues, teams, matches };
+    return { leagues, matches, teams: [] };
+  }
+
+  async function loadAll({ days = 7 } = {}) {
+    const teams = [];
+    const matches = [];
+    const leagues = [];
+    // Matches first (parallel), teams in parallel separately — don't block scores on squads
+    const matchResults = await Promise.all(
+      LEAGUES.map(async (league) => {
+        try {
+          const leagueMatches = await loadLeagueMatches(league, { days });
+          return {
+            league: cache.leagueMeta[league.id] || { ...league, logo: LEAGUE_LOGOS[league.id] },
+            matches: leagueMatches,
+          };
+        } catch (err) {
+          console.warn("Failed league matches", league.id, err);
+          return { league: { ...league, logo: LEAGUE_LOGOS[league.id] }, matches: [] };
+        }
+      })
+    );
+    for (const row of matchResults) {
+      leagues.push(row.league);
+      matches.push(...row.matches);
+    }
+
+    const teamResults = await Promise.all(
+      LEAGUES.map(async (league) => {
+        try {
+          return await loadLeagueTeams(league);
+        } catch (err) {
+          console.warn("Failed league teams", league.id, err);
+          return [];
+        }
+      })
+    );
+    for (const leagueTeams of teamResults) teams.push(...leagueTeams);
+
+    // Re-enrich logos now that teams are warm
+    for (const league of LEAGUES) {
+      const list = cache.matchesByLeague[league.id];
+      if (list) enrichMatchLogos(league.id, list);
+    }
+
+    const byId = new Map();
+    for (const m of matches) byId.set(m.id, m);
+    for (const league of LEAGUES) {
+      for (const m of cache.matchesByLeague[league.id] || []) byId.set(m.id, m);
+    }
+    return { leagues, teams, matches: sortMatches([...byId.values()]) };
   }
 
   async function loadTeamDetail(slug, teamId) {
@@ -571,6 +637,7 @@
     LEAGUES,
     LEAGUE_LOGOS,
     loadAll,
+    loadMatchesQuick,
     loadTeamDetail,
     loadRoster,
     loadSchedule,

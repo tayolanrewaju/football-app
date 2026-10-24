@@ -190,7 +190,7 @@ function updateNav() {
   } else if (currentView === "teams" && teamsLeagueId) {
     els.navTitle.textContent = live.leagues.find((l) => l.id === teamsLeagueId)?.name || "Teams";
   } else {
-    els.navTitle.textContent = TITLES[currentView] || "NINETY";
+    els.navTitle.textContent = TITLES[currentView] || "Derby";
   }
 }
 
@@ -214,17 +214,32 @@ function refreshAccountButton() {
 }
 
 async function bootstrapLive() {
-  els.matchesList.innerHTML = `<div class="loading">Loading live scores…</div>`;
+  if (!live.matches.length) {
+    els.matchesList.innerHTML = `<div class="loading">Loading live scores…</div>`;
+  }
   try {
-    const data = await API.loadAll();
+    // Paint today first so Matches never feels stuck
+    const quick = await API.loadMatchesQuick();
+    live.leagues = quick.leagues.length ? quick.leagues : live.leagues;
+    live.matches = quick.matches;
+    live.ready = true;
+    live.error = null;
+    if (currentView === "matches") {
+      renderMatchLeagueSeg();
+      renderMatches();
+    }
+
+    const data = await API.loadAll({ days: 7 });
     live.leagues = data.leagues;
     live.teams = data.teams;
     live.matches = data.matches;
     live.ready = true;
     live.error = null;
   } catch (err) {
-    live.error = String(err?.message || err);
-    live.ready = false;
+    if (!live.matches.length) {
+      live.error = String(err?.message || err);
+      live.ready = false;
+    }
   }
   render();
 }
@@ -809,7 +824,7 @@ function renderFavourites() {
     const permission = await Notification.requestPermission();
     alertSettings.enabled = permission === "granted";
     persist();
-    if (alertSettings.enabled) new Notification("NINETY", { body: "Alerts ready." });
+    if (alertSettings.enabled) new Notification("Derby", { body: "Alerts ready." });
     renderFavourites();
   });
 
@@ -844,7 +859,7 @@ function renderAccount() {
     title.className = "group-title";
     title.textContent = "Signed in";
     const card = document.createElement("div");
-    card.className = "group auth-card";
+    card.className = "group auth-card glass-card";
     card.innerHTML = `
       <p class="intel-title">${escapeHtml(user.name)}</p>
       <p class="intel-note">${escapeHtml(user.email || user.username || user.phone || "")}</p>
@@ -867,7 +882,7 @@ function renderAccount() {
       refreshAccountButton();
       renderAccount();
     });
-    wrap.append(title, card, save, out);
+    wrap.append(title, card, save, out, buildOpenAiCard());
     els.accountList.replaceChildren(wrap);
     return;
   }
@@ -991,7 +1006,7 @@ function renderAccount() {
   });
 
   paintForm();
-  wrap.append(title, social, formCard);
+  wrap.append(title, social, formCard, buildOpenAiCard());
   els.accountList.replaceChildren(wrap);
 
   // Native Google button when GIS client id is configured
@@ -1001,13 +1016,70 @@ function renderAccount() {
   }
 }
 
+function buildOpenAiCard() {
+  const frag = document.createDocumentFragment();
+  const title = document.createElement("p");
+  title.className = "group-title";
+  title.textContent = "ChatGPT / OpenAI";
+  const card = document.createElement("div");
+  card.className = "group auth-card glass-card";
+  card.innerHTML = `
+    <p class="intel-note">Ask AI routes through the OpenAI API (ChatGPT models). Paste a key from platform.openai.com — this is not your ChatGPT password.</p>
+    <p class="intel-note" id="openai-status">Checking…</p>
+    <label>OpenAI API key<input name="openaiKey" type="password" autocomplete="off" placeholder="sk-…" /></label>
+    <p class="auth-error" id="openai-error" hidden></p>
+    <button type="button" class="auth-btn" id="openai-save">Save key for Ask AI</button>
+  `;
+  const status = card.querySelector("#openai-status");
+  const err = card.querySelector("#openai-error");
+  const input = card.querySelector('input[name="openaiKey"]');
+  fetch("/api/auth/config", { credentials: "include" })
+    .then((r) => r.json())
+    .then((cfg) => {
+      status.textContent = cfg.openaiConfigured
+        ? `Connected${cfg.openaiKeyHint ? ` (${cfg.openaiKeyHint})` : ""} — Ask AI uses ChatGPT.`
+        : "Not connected — Ask AI will use the built-in football brain until you add a key.";
+      status.classList.toggle("is-live", !!cfg.openaiConfigured);
+    })
+    .catch(() => {
+      status.textContent = "Couldn’t check ChatGPT status.";
+    });
+  card.querySelector("#openai-save").addEventListener("click", async () => {
+    err.hidden = true;
+    const key = String(input.value || "").trim();
+    if (!key) {
+      err.hidden = false;
+      err.textContent = "Paste an API key first.";
+      return;
+    }
+    try {
+      const res = await fetch("/api/auth/config", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openaiApiKey: key }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Save failed");
+      input.value = "";
+      status.textContent = `Connected${data.openaiKeyHint ? ` (${data.openaiKeyHint})` : ""} — Ask AI uses ChatGPT.`;
+      status.classList.add("is-live");
+    } catch (e) {
+      err.hidden = false;
+      err.textContent = e.message || "Couldn’t save key.";
+    }
+  });
+  frag.append(title, card);
+  return frag;
+}
+
 function appendAsk(role, text, source) {
   const bubble = document.createElement("div");
   bubble.className = `ask-bubble ${role}`;
   const body = escapeHtml(text).replaceAll("\n", "<br>");
   bubble.innerHTML =
     role === "ai"
-      ? `<p>${body}</p><span class="ask-source">${escapeHtml(source || "NINETY AI")}</span>`
+      ? `<p>${body}</p><span class="ask-source">${escapeHtml(source || "ChatGPT")}</span>`
       : `<p>${body}</p>`;
   els.askLog.appendChild(bubble);
   els.askLog.scrollTop = els.askLog.scrollHeight;
@@ -1017,7 +1089,7 @@ async function ask(question) {
   const q = String(question || "").trim();
   if (!q) return;
   appendAsk("user", q);
-  appendAsk("ai", "Checking live scores, world clubs, squads, and the 2027 board…", "NINETY AI");
+  appendAsk("ai", "Asking ChatGPT with live match context…", "ChatGPT");
   try {
     const result = await AI.research(q, {
       favorites,
@@ -1028,12 +1100,12 @@ async function ask(question) {
     const bubbles = els.askLog.querySelectorAll(".ask-bubble.ai");
     const last = bubbles[bubbles.length - 1];
     if (last) {
-      last.innerHTML = `<p>${escapeHtml(result.text).replaceAll("\n", "<br>")}</p><span class="ask-source">${escapeHtml(result.source || "NINETY AI")}</span>`;
+      last.innerHTML = `<p>${escapeHtml(result.text).replaceAll("\n", "<br>")}</p><span class="ask-source">${escapeHtml(result.source || "ChatGPT")}</span>`;
     } else {
       appendAsk("ai", result.text, result.source);
     }
   } catch (err) {
-    appendAsk("ai", `I hit a snag while researching that: ${err.message || err}`, "NINETY AI");
+    appendAsk("ai", `I hit a snag: ${err.message || err}`, "Derby AI");
   }
 }
 
@@ -1147,7 +1219,7 @@ setInterval(() => {
 if (!els.askLog.children.length) {
   appendAsk(
     "ai",
-    "Ask me anything football — I’ll search live scores, world clubs, squads, and the 2027 transfer board together.",
-    "NINETY AI"
+    "Ask me anything football. Connect ChatGPT in Account for the smartest answers — I’ll still use live scores and the transfer board either way.",
+    "Derby AI"
   );
 }

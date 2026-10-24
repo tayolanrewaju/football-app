@@ -1,26 +1,23 @@
-# NINETY
+# Derby
 
-iOS-style football app with five tabs:
+iOS liquid-glass football app with five tabs:
 
-1. **Matches** — live scores with club crests across top European leagues
-2. **Transfers** — big European moves from the 2027 window
-3. **Ask AI** — multi-source football answers
-4. **Teams** — world club search, full squads, player season stats, 4-3-3 formation
-5. **Favourites** — saved clubs with form and alerts
+1. **Matches** — fast live scores with filled club crests
+2. **Transfers** — 2027 window board
+3. **Ask AI** — ChatGPT via OpenAI API (+ live score context)
+4. **Teams** — squads, player season stats, 4-3-3 pitch
+5. **Favourites** — saved clubs + alerts
 
-## Account
+## ChatGPT / Ask AI
 
-Email signup/signin plus **Continue with Apple / Google**. Logins are saved on the server (`data/users.json` + HttpOnly session cookie).
-
-Optional real OAuth client IDs:
+Paste an **OpenAI API key** in Account (from https://platform.openai.com/api-keys), or:
 
 ```bash
-export GOOGLE_CLIENT_ID="your-google-web-client-id"
-export APPLE_CLIENT_ID="your-apple-services-id"
+export OPENAI_API_KEY="sk-..."
 python3 server.py
 ```
 
-Or `POST /api/auth/config` with `{ "googleClientId", "appleClientId" }`.
+This uses the OpenAI API (ChatGPT models). It cannot log into a chatgpt.com browser session.
 
 ## Run locally
 

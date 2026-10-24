@@ -27,6 +27,10 @@ ESPN_HOSTS = {
     "web": "https://site.web.api.espn.com",
 }
 
+# Short in-memory cache so Matches don't re-hit ESPN on every tab switch
+PROXY_CACHE: dict[str, tuple[float, bytes, str, int]] = {}
+PROXY_TTL = 45.0
+
 DATA_DIR.mkdir(exist_ok=True)
 
 
@@ -41,6 +45,11 @@ def read_json(path: Path, default):
 
 def write_json(path: Path, value) -> None:
     path.write_text(json.dumps(value, indent=2), encoding="utf-8")
+
+
+def openai_api_key() -> str:
+    cfg = read_json(CONFIG_FILE, {})
+    return (os.environ.get("OPENAI_API_KEY") or cfg.get("openaiApiKey") or "").strip()
 
 
 def public_user(user: dict) -> dict:
@@ -137,6 +146,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.auth_config()
         if parsed.path == "/api/auth/logout":
             return self.auth_logout()
+        if parsed.path == "/api/ai/status":
+            return self.ai_status()
         return super().do_GET()
 
     def do_POST(self):
@@ -156,6 +167,7 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/auth/social": self.auth_social,
             "/api/auth/favorites": self.auth_favorites,
             "/api/auth/config": self.auth_config_save,
+            "/api/ai/chat": self.ai_chat,
         }
         handler = routes.get(parsed.path)
         if not handler:
@@ -193,9 +205,12 @@ class Handler(SimpleHTTPRequestHandler):
 
     def auth_config(self):
         cfg = read_json(CONFIG_FILE, {})
+        key = openai_api_key()
         payload = {
             "googleClientId": os.environ.get("GOOGLE_CLIENT_ID") or cfg.get("googleClientId") or "",
             "appleClientId": os.environ.get("APPLE_CLIENT_ID") or cfg.get("appleClientId") or "",
+            "openaiConfigured": bool(key),
+            "openaiKeyHint": (f"…{key[-4:]}" if len(key) > 4 else ""),
         }
         return self.json_response(payload)
 
@@ -205,8 +220,88 @@ class Handler(SimpleHTTPRequestHandler):
             cfg["googleClientId"] = str(body.get("googleClientId") or "").strip()
         if body.get("appleClientId") is not None:
             cfg["appleClientId"] = str(body.get("appleClientId") or "").strip()
+        if body.get("openaiApiKey") is not None:
+            cfg["openaiApiKey"] = str(body.get("openaiApiKey") or "").strip()
         write_json(CONFIG_FILE, cfg)
-        return self.json_response({"ok": True, **cfg})
+        key = openai_api_key()
+        return self.json_response(
+            {
+                "ok": True,
+                "googleClientId": cfg.get("googleClientId") or "",
+                "appleClientId": cfg.get("appleClientId") or "",
+                "openaiConfigured": bool(key),
+                "openaiKeyHint": (f"…{key[-4:]}" if len(key) > 4 else ""),
+            }
+        )
+
+    def ai_status(self):
+        key = openai_api_key()
+        return self.json_response({"openaiConfigured": bool(key)})
+
+    def ai_chat(self, body):
+        key = openai_api_key()
+        if not key:
+            return self.json_response(
+                {
+                    "error": "No OpenAI API key set. Add one in Account → ChatGPT / OpenAI, or set OPENAI_API_KEY.",
+                    "needsKey": True,
+                },
+                400,
+            )
+        question = str(body.get("question") or body.get("message") or "").strip()
+        if not question:
+            return self.json_response({"error": "Empty question"}, 400)
+        context = str(body.get("context") or "")[:6000]
+        system = (
+            "You are Derby Ask AI, a sharp football assistant inside a live scores app. "
+            "Be concise, colourful, and accurate. Prefer the live context when provided "
+            "(scores, squads, transfers). Use UK football phrasing. If unsure, say so."
+        )
+        user_content = question if not context else f"Live app context:\n{context}\n\nQuestion: {question}"
+        payload = {
+            "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            "temperature": 0.6,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_content},
+            ],
+        }
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=json.dumps(payload).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+                "User-Agent": "Derby/1.0",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=45) as resp:
+                data = json.loads(resp.read().decode())
+            text = (
+                data.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+                .strip()
+            )
+            if not text:
+                return self.json_response({"error": "Empty response from OpenAI"}, 502)
+            return self.json_response(
+                {
+                    "text": text,
+                    "source": "ChatGPT",
+                    "model": payload["model"],
+                }
+            )
+        except urllib.error.HTTPError as err:
+            detail = err.read().decode(errors="ignore")[:400]
+            return self.json_response(
+                {"error": f"OpenAI HTTP {err.code}: {detail}"},
+                502,
+            )
+        except Exception as err:  # noqa: BLE001
+            return self.json_response({"error": str(err)}, 502)
 
     def auth_me(self):
         user = user_from_session(self.session_token())
@@ -355,23 +450,41 @@ class Handler(SimpleHTTPRequestHandler):
         target = f"{host}/{rest}"
         if parsed.query:
             target = f"{target}?{parsed.query}"
+
+        cached = PROXY_CACHE.get(target)
+        now = time.time()
+        if cached and now - cached[0] < PROXY_TTL:
+            _, body, content_type, status = cached
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Cache", "HIT")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         try:
             req = urllib.request.Request(
                 target,
-                headers={"User-Agent": "NINETY/1.0", "Accept": "application/json"},
+                headers={"User-Agent": "Derby/1.0", "Accept": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=20) as resp:
+            with urllib.request.urlopen(req, timeout=12) as resp:
                 body = resp.read()
                 content_type = resp.headers.get("Content-Type", "application/json")
+                PROXY_CACHE[target] = (now, body, content_type, 200)
                 self.send_response(200)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(body)))
+                self.send_header("X-Cache", "MISS")
                 self.end_headers()
                 self.wfile.write(body)
         except urllib.error.HTTPError as err:
             body = err.read()
+            content_type = "application/json"
+            if err.code < 500:
+                PROXY_CACHE[target] = (now, body, content_type, err.code)
             self.send_response(err.code)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
