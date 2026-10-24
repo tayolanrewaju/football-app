@@ -27,6 +27,14 @@ let selectedPlayer = null;
 let selectedMatch = null;
 let favMode = localStorage.getItem("ninety-fav-mode") || "following";
 let fantasySquad = loadJson("ninety-fantasy-v1", []);
+try {
+  const fantasySaved = JSON.parse(localStorage.getItem("ninety-fantasy-v2") || "null");
+  if (fantasySaved?.theme) document.documentElement.dataset.theme = fantasySaved.theme;
+} catch {
+  /* Theme stays on the dark pitch until settings load. */
+}
+const pendingLeague = new URLSearchParams(location.search).get("league");
+if (pendingLeague) sessionStorage.setItem("ninety-league-invite", pendingLeague.toUpperCase());
 let fantasyPlayerId = null;
 let fantasyQuery = "";
 let fantasyHits = [];
@@ -227,9 +235,12 @@ function showView(name) {
 function updateNav() {
   const deepTeams = currentView === "teams" && (teamsLeagueId || selectedTeam || selectedPlayer);
   const deepMatch = currentView === "matches" && selectedMatch;
-  const deepFantasy = currentView === "favourites" && favMode === "fantasy" && fantasyPlayerId;
+  const fantasyDeep = currentView === "favourites" && favMode === "fantasy" && window.NINETY_FANTASY_UI && NINETY_FANTASY_UI.screen() !== "home";
+  const deepFantasy = fantasyDeep || (currentView === "favourites" && favMode === "fantasy" && fantasyPlayerId);
   els.navBack.hidden = !(deepTeams || deepMatch || deepFantasy);
-  if (deepFantasy) {
+  if (fantasyDeep) {
+    els.navTitle.textContent = NINETY_FANTASY_UI.title();
+  } else if (currentView === "favourites" && favMode === "fantasy" && fantasyPlayerId) {
     els.navTitle.textContent = fantasySquad.find((player) => player.id === fantasyPlayerId)?.name || "Player";
   } else if (currentView === "favourites" && favMode === "fantasy") {
     els.navTitle.textContent = "Fantasy";
@@ -1183,8 +1194,17 @@ function fantasyPointsFor(id) {
   return fantasyPoints?.players?.find((player) => player.id === id) || null;
 }
 
+function fantasyState() {
+  if (!window.NINETY_FANTASY_GAME) return null;
+  return NINETY_FANTASY_GAME.load();
+}
+
+function activeSquad() {
+  return fantasyState()?.squad || fantasySquad;
+}
+
 function squadClubsMatch(match) {
-  return fantasySquad.some((player) => {
+  return activeSquad().some((player) => {
     const club = String(player.club || "").toLowerCase();
     if (!club) return false;
     const home = String(match.home || "").toLowerCase();
@@ -1193,26 +1213,37 @@ function squadClubsMatch(match) {
   });
 }
 
+function finishFantasyPoints(raw, correction) {
+  const next = raw || { total: 0, players: [] };
+  next.total = Math.round(((next.total || 0) + correction) * 10) / 10;
+  next.correction = correction;
+  return next;
+}
+
 function ensureFantasyPoints() {
-  if (!fantasySquad.length || !live.matches.length) {
-    fantasyPoints = FANTASY.weekPoints(fantasySquad, []);
+  const state = fantasyState();
+  const squad = state?.squad || fantasySquad;
+  const chip = state?.chipThisWeek || "";
+  const correction = (state?.corrections || []).reduce((sum, row) => sum + (Number(row.value) || 0), 0);
+  const options = { triple: chip === "triple", benchBoost: chip === "bench" };
+  if (!squad.length || !live.matches.length) {
+    fantasyPoints = finishFantasyPoints(FANTASY.weekPoints(squad, [], options), correction);
     return;
   }
   const matches = live.matches.filter(
     (match) => match.status !== "Upcoming" && FANTASY.inThisWeek(match.start) && squadClubsMatch(match)
   );
-  const key = `${fantasySquad.map((player) => player.id).join(",")}|${matches.map((match) => match.id).join(",")}`;
+  const key = `${squad.map((player) => `${player.id}:${player.xi}:${player.captain}:${player.vice}`).join(",")}|${matches.map((match) => match.id).join(",")}|${chip}|${correction}`;
   if (key === fantasyPointsKey) return;
   fantasyPointsKey = key;
   fantasyLoading = true;
   Promise.all(matches.map((match) => API.loadMatchSheets(match.league, match.id).catch(() => null))).then((sheets) => {
     if (fantasyPointsKey !== key) return;
-    fantasyPoints = FANTASY.weekPoints(
-      fantasySquad,
-      sheets.filter(Boolean)
-    );
+    fantasyPoints = finishFantasyPoints(FANTASY.weekPoints(squad, sheets.filter(Boolean), options), correction);
     fantasyLoading = false;
-    if (currentView === "favourites" && favMode === "fantasy") renderFavourites();
+    const pointsScreens = new Set(["home", "team", "pick", "points", "live", "profile", "stats"]);
+    const screen = window.NINETY_FANTASY_UI?.screen?.() || "home";
+    if (currentView === "favourites" && favMode === "fantasy" && pointsScreens.has(screen)) renderFavourites();
   });
 }
 
@@ -1357,6 +1388,31 @@ function renderFantasyPlayer() {
 
 function renderFantasy() {
   ensureFantasyPoints();
+  if (window.NINETY_FANTASY_UI) {
+    NINETY_FANTASY_UI.render({
+      list: els.favouritesList,
+      escapeHtml,
+      faceMarkup,
+      money,
+      matches: live.matches,
+      points: fantasyPoints,
+      user: AUTH.currentUser(),
+      api: API,
+      ask(text) {
+        showView("ask");
+        ask(text);
+      },
+      follow(name) {
+        if (name && !favorites.includes(name)) toggleFavorite(name);
+      },
+      onNotice(note) {
+        if (!note || alertSeen.has(note.key)) return;
+        if (note.key) rememberAlerts([note.key]);
+        deliverAlert(note);
+      },
+    });
+    return;
+  }
   if (fantasyPlayerId) {
     renderFantasyPlayer();
     return;
@@ -1672,9 +1728,11 @@ function renderAccount() {
     const card = document.createElement("div");
     card.className = "group auth-card glass-card";
     card.innerHTML = `
-      <p class="intel-title">${escapeHtml(user.name)}</p>
+      ${user.picture ? `<img class="player-hero-face" alt="" src="${escapeHtml(user.picture)}" />` : ""}
+      <p class="intel-title">${escapeHtml(user.displayName || user.name)}</p>
       <p class="intel-note">${escapeHtml(user.email || user.username || user.phone || "")}</p>
-      <p class="intel-note">Via ${escapeHtml(user.provider)} · ${favorites.length} favourites saved</p>
+      <p class="intel-note">Via ${escapeHtml(user.provider)} · ${favorites.length} favourites saved · since ${escapeHtml(user.createdAt || "")}</p>
+      <p class="intel-note">${window.NINETY_FANTASY_GAME ? `Fantasy ${escapeHtml(NINETY_FANTASY_GAME.load().teamName || "unnamed")} · ${NINETY_FANTASY_GAME.records(NINETY_FANTASY_GAME.load()).total} pts · ${(NINETY_FANTASY_GAME.load().archives || []).length} archived seasons` : ""}</p>
     `;
     const save = document.createElement("button");
     save.type = "button";
@@ -1693,7 +1751,49 @@ function renderAccount() {
       refreshAccountButton();
       renderAccount();
     });
-    wrap.append(title, card, save, out, buildOpenAiCard());
+    const tools = document.createElement("div");
+    tools.className = "group";
+    tools.innerHTML = `
+      <div class="setting-row"><strong>Display name</strong><span><input id="profile-name" value="${escapeHtml(user.displayName || user.name || "")}" /></span></div>
+      <div class="setting-row"><strong>Username</strong><span><input id="profile-user" value="${escapeHtml(user.username || "")}" /></span></div>
+      <div class="setting-row"><strong>Favourite club</strong><span><input id="profile-club" value="${escapeHtml(user.favouriteClub || "")}" /></span></div>
+      <div class="setting-row"><strong>Country</strong><span><input id="profile-country" value="${escapeHtml(user.country || "")}" /></span></div>
+      <div class="setting-row"><strong>Region</strong><span><input id="profile-region" value="${escapeHtml(user.region || "")}" /></span></div>
+      <div class="setting-row"><strong>Picture URL</strong><span><input id="profile-picture" value="${escapeHtml(user.picture || "")}" placeholder="https://" /></span></div>
+      <div class="setting-row"><strong>Email</strong><span>${user.emailVerified ? "Verified" : "Not verified"}</span></div>
+      <button type="button" class="mini-btn" id="profile-save">Save profile</button>
+      <button type="button" class="mini-btn" id="profile-verify">Email code</button>
+      <button type="button" class="mini-btn" id="profile-delete">Delete account</button>
+      <p class="intel-note" id="profile-note"></p>
+    `;
+    tools.querySelector("#profile-save").addEventListener("click", async () => {
+      const data = await AUTH.postAccount("/api/auth/profile", {
+        displayName: tools.querySelector("#profile-name").value,
+        name: tools.querySelector("#profile-name").value,
+        username: tools.querySelector("#profile-user").value,
+        favouriteClub: tools.querySelector("#profile-club").value,
+        country: tools.querySelector("#profile-country").value,
+        region: tools.querySelector("#profile-region").value,
+        picture: tools.querySelector("#profile-picture").value,
+      });
+      tools.querySelector("#profile-note").textContent = data.error || "Profile saved.";
+      if (!data.error && data.user?.favouriteClub && !favorites.includes(data.user.favouriteClub)) toggleFavorite(data.user.favouriteClub);
+    });
+    tools.querySelector("#profile-verify").addEventListener("click", async () => {
+      const sent = await AUTH.postAccount("/api/auth/verify/request", {});
+      const code = window.prompt(sent.note || "Enter the code", sent.code || "");
+      if (!code) return;
+      const data = await AUTH.postAccount("/api/auth/verify", { code });
+      tools.querySelector("#profile-note").textContent = data.error || "Email verified.";
+    });
+    tools.querySelector("#profile-delete").addEventListener("click", async () => {
+      if (!window.confirm("Delete this account?")) return;
+      await AUTH.postAccount("/api/auth/delete", {});
+      await AUTH.logout();
+      refreshAccountButton();
+      renderAccount();
+    });
+    wrap.append(title, card, save, out, tools, buildOpenAiCard());
     els.accountList.replaceChildren(wrap);
     return;
   }
@@ -1770,6 +1870,7 @@ function renderAccount() {
         <label>Email / username / phone<input name="identity" required autocomplete="username" placeholder="you@email.com" /></label>
         <label>Password<input name="password" type="password" required autocomplete="current-password" placeholder="••••••••" /></label>
         <button type="submit" class="auth-btn">Sign in</button>
+        <button type="button" class="mini-btn" id="reset-password">Reset password</button>
       `;
     } else {
       form.innerHTML = `
@@ -1789,6 +1890,27 @@ function renderAccount() {
       setAuthError(errorEl, "");
       paintForm();
     });
+  });
+
+  form.addEventListener("click", async (event) => {
+    if (event.target?.id !== "reset-password") return;
+    const identity = form.querySelector("[name=identity]")?.value || window.prompt("Email, username, or phone");
+    if (!identity) return;
+    const sent = await fetch("/api/auth/reset/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identity }),
+    }).then((res) => res.json());
+    if (sent.error) return setAuthError(errorEl, sent.error);
+    const code = window.prompt(sent.note || "Enter the reset code", sent.code || "");
+    const password = code ? window.prompt("New password") : "";
+    if (!code || !password) return;
+    const done = await fetch("/api/auth/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identity, code, password }),
+    }).then((res) => res.json());
+    setAuthError(errorEl, done.error || "Password updated. Sign in with the new one.");
   });
 
   form.addEventListener("submit", async (event) => {
@@ -1954,6 +2076,10 @@ document.querySelectorAll(".tab-bar .tab").forEach((tab) => {
 });
 
 els.navBack.addEventListener("click", () => {
+  if (currentView === "favourites" && favMode === "fantasy" && window.NINETY_FANTASY_UI?.back()) {
+    updateNav();
+    return;
+  }
   if (currentView === "favourites" && fantasyPlayerId) {
     fantasyPlayerId = null;
     renderFavourites();
@@ -2056,8 +2182,19 @@ bootstrapLive();
 setInterval(() => {
   if (document.visibilityState === "visible") bootstrapLive();
 }, 90_000);
+function watchFantasyNotices() {
+  if (!window.NINETY_FANTASY_GAME) return;
+  const state = NINETY_FANTASY_GAME.load();
+  NINETY_FANTASY_GAME.notices(state, { matches: live.matches }).forEach((note) => {
+    if (alertSeen.has(note.key)) return;
+    rememberAlerts([note.key]);
+    deliverAlert(note);
+  });
+}
+
 setInterval(() => {
   watchFavouriteAlerts();
+  watchFantasyNotices();
 }, 25_000);
 
 if (!els.askLog.children.length) {

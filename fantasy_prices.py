@@ -145,7 +145,13 @@ def _laliga_to_fpl(market: float, median: float, maximum: float, fpl_min: float,
 
 def _load_books() -> dict:
     fpl = _fetch(FPL_URL)
-    teams = {team["id"]: team["name"] for team in fpl.get("teams") or []}
+    teams = {}
+    badges = {}
+    for team in fpl.get("teams") or []:
+        teams[team["id"]] = team["name"]
+        code = team.get("code")
+        if code:
+            badges[team["id"]] = f"https://resources.premierleague.com/premierleague/badges/70/t{code}.png"
     fpl_players = []
     fpl_costs = []
     medians: dict[str, list[float]] = {"G": [], "D": [], "M": [], "A": []}
@@ -159,8 +165,12 @@ def _load_books() -> dict:
         medians[slot].append(derby)
         first = row.get("first_name") or ""
         second = row.get("second_name") or ""
+        code = str(row.get("code") or "")
+        status_code = str(row.get("status") or "a")
+        status = {"a": "available", "d": "doubt", "i": "injured", "s": "suspended", "u": "unavailable", "n": "unavailable"}.get(status_code, "available")
         fpl_players.append(
             {
+                "pid": f"fpl-{row.get('id')}",
                 "name": f"{first} {second}".strip(),
                 "web": row.get("web_name") or second or first,
                 "club": teams.get(row.get("team"), ""),
@@ -170,6 +180,28 @@ def _load_books() -> dict:
                 "derby": derby,
                 "league": "Premier League",
                 "game": "Fantasy Premier League",
+                "status": status,
+                "news": row.get("news") or "",
+                "chance": row.get("chance_of_playing_this_round"),
+                "owned": row.get("selected_by_percent"),
+                "form": row.get("form"),
+                "points": row.get("total_points") or 0,
+                "week_points": row.get("event_points") or 0,
+                "xg": row.get("expected_goals"),
+                "xa": row.get("expected_assists"),
+                "goals": row.get("goals_scored") or 0,
+                "assists": row.get("assists") or 0,
+                "minutes": row.get("minutes") or 0,
+                "starts": row.get("starts") or 0,
+                "penalties": row.get("penalties_text") or "",
+                "set_pieces": row.get("corners_and_indirect_freekicks_text") or row.get("direct_freekicks_text") or "",
+                "headshot": f"https://resources.premierleague.com/premierleague/photos/players/110x140/p{code}.png" if code else "",
+                "number": row.get("squad_number") or "",
+                "price_change": round((row.get("cost_change_event") or 0) / 10, 1),
+                "price_change_start": round((row.get("cost_change_start") or 0) / 10, 1),
+                "badge": badges.get(row.get("team"), ""),
+                "xgi": row.get("expected_goal_involvements"),
+                "clean_sheets": row.get("clean_sheets") or 0,
             }
         )
     fpl_costs.sort()
@@ -201,8 +233,11 @@ def _load_books() -> dict:
         derby = round(native_fpl * (DERBY_BUDGET / FPL_BUDGET), 1)
         slot = SLOT_FROM_LALIGA.get(str(row.get("positionId")), "M")
         nickname = row.get("nickname") or ""
+        image = row.get("image") or ""
+        laliga_status = str(row.get("playerStatus") or "ok")
         laliga_players.append(
             {
+                "pid": f"ll-{row.get('id')}",
                 "name": nickname,
                 "web": nickname,
                 "club": laliga_teams.get(str(row.get("teamId")), ""),
@@ -212,6 +247,28 @@ def _load_books() -> dict:
                 "derby": derby,
                 "league": "La Liga",
                 "game": "LaLiga Fantasy",
+                "status": "injured" if laliga_status == "injured" else "available" if laliga_status == "ok" else laliga_status,
+                "news": "",
+                "chance": None,
+                "owned": None,
+                "form": round(float(row.get("averagePoints") or 0), 1),
+                "points": row.get("points") or 0,
+                "week_points": 0,
+                "xg": None,
+                "xa": None,
+                "goals": None,
+                "assists": None,
+                "minutes": None,
+                "starts": None,
+                "penalties": "",
+                "set_pieces": "",
+                "headshot": image if isinstance(image, str) else "",
+                "number": "",
+                "price_change": 0,
+                "price_change_start": 0,
+                "badge": "",
+                "xgi": None,
+                "clean_sheets": 0,
             }
         )
 
@@ -302,3 +359,92 @@ def quote(name: str, club: str = "", position: str = "") -> dict:
             for hit in found
         ],
     }
+
+
+def _public_player(player: dict, sources: list[dict]) -> dict:
+    prices = [source["derby"] for source in sources]
+    return {
+        "id": player.get("pid") or player["name"],
+        "name": player["name"],
+        "club": player.get("club") or "",
+        "slot": player.get("slot") or "M",
+        "price": round(sum(prices) / len(prices), 1) if prices else player.get("derby"),
+        "status": player.get("status") or "available",
+        "news": player.get("news") or "",
+        "chance": player.get("chance"),
+        "owned": player.get("owned"),
+        "form": player.get("form"),
+        "points": player.get("points") or 0,
+        "weekPoints": player.get("week_points") or 0,
+        "xg": player.get("xg"),
+        "xa": player.get("xa"),
+        "goals": player.get("goals"),
+        "assists": player.get("assists"),
+        "minutes": player.get("minutes"),
+        "starts": player.get("starts"),
+        "penalties": player.get("penalties") or "",
+        "setPieces": player.get("set_pieces") or "",
+        "headshot": player.get("headshot") or "",
+        "number": player.get("number") or "",
+        "priceChange": player.get("price_change") or 0,
+        "priceChangeStart": player.get("price_change_start") or 0,
+        "badge": player.get("badge") or "",
+        "xgi": player.get("xgi") if player.get("xgi") is not None else _sum_xgi(player),
+        "cleanSheets": player.get("clean_sheets") or 0,
+        "selected": player.get("owned"),
+        "sources": [{"game": source["game"], "cost": source["native_label"], "derby": source["derby"]} for source in sources],
+    }
+
+
+def _sum_xgi(player: dict):
+    xg = player.get("xg")
+    xa = player.get("xa")
+    if xg is None and xa is None:
+        return None
+    return round(float(xg or 0) + float(xa or 0), 2)
+
+
+def list_players(query: str = "", slot: str = "", club: str = "", sort: str = "price", limit: int = 40, offset: int = 0, max_price: float | None = None, min_points: float | None = None, status: str = "", min_form: float | None = None) -> dict:
+    books = ensure()
+    if not books:
+        return {"players": [], "total": 0, "error": _error or "Prices are still loading."}
+    grouped: dict[str, list] = {}
+    for book in books["books"]:
+        for player in book["players"]:
+            key = fold(player.get("web") or player.get("name"))
+            grouped.setdefault(key, []).append(player)
+    rows = []
+    needle = fold(query)
+    club_needle = fold(club)
+    for group in grouped.values():
+        base = group[0]
+        row = _public_player(base, group)
+        if slot and row["slot"] != slot:
+            continue
+        if needle and needle not in fold(row["name"]) and needle not in fold(row["club"]):
+            continue
+        if club_needle and club_needle not in fold(row["club"]):
+            continue
+        if max_price is not None and row["price"] > max_price:
+            continue
+        if min_points is not None and (row["points"] or 0) < min_points:
+            continue
+        if status and row["status"] != status:
+            continue
+        if min_form is not None and float(row["form"] or 0) < min_form:
+            continue
+        rows.append(row)
+    def sort_key(row: dict):
+        if sort == "points":
+            return -(row["points"] or 0)
+        if sort == "form":
+            return -(float(row["form"] or 0))
+        if sort == "owned":
+            return -(float(row["owned"] or 0))
+        if sort == "name":
+            return row["name"]
+        return row["price"]
+    rows.sort(key=sort_key)
+    total = len(rows)
+    start = max(0, offset)
+    return {"players": rows[start:start + max(1, min(limit, 80))], "total": total}

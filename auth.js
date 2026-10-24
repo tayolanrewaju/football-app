@@ -19,6 +19,11 @@
       favorites: Array.isArray(user.favorites) ? user.favorites : [],
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+      displayName: user.displayName || user.name || "",
+      emailVerified: !!user.emailVerified,
+      favouriteClub: user.favouriteClub || "",
+      privacy: user.privacy || "public",
+      role: user.role || "member",
     };
   }
 
@@ -346,6 +351,12 @@
     }
   }
 
+  async function postAccount(path, body) {
+    const data = await api(path, { method: "POST", body });
+    if (data.user) setCached(data.user);
+    return data;
+  }
+
   async function saveConfig(patch) {
     const data = await api("/api/auth/config", { method: "POST", body: patch });
     authConfig = {
@@ -387,6 +398,7 @@
     logout,
     currentUser,
     updateFavorites,
+    postAccount,
     saveConfig,
     getConfig,
     renderGoogleButton,

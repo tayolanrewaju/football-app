@@ -18,12 +18,17 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import fantasy_prices
+import fantasy_server
+
+RATE: dict[str, list[float]] = {}
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 PORT = int(os.environ.get("PORT", "4173"))
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
+FANTASY_FILE = DATA_DIR / "fantasy.json"
+FANTASY_LOG = DATA_DIR / "fantasy.log"
 USERS_FILE = DATA_DIR / "users.json"
 SESSIONS_FILE = DATA_DIR / "sessions.json"
 CONFIG_FILE = DATA_DIR / "auth-config.json"
@@ -53,6 +58,57 @@ def write_json(path: Path, value) -> None:
     path.write_text(json.dumps(value, indent=2), encoding="utf-8")
 
 
+FANTASY = fantasy_server.Store(FANTASY_FILE, read_json, write_json)
+
+
+def rate_ok(ip: str) -> bool:
+    now = time.time()
+    hits = [stamp for stamp in RATE.get(ip, []) if now - stamp < 60]
+    if len(hits) > 240:
+        return False
+    hits.append(now)
+    RATE[ip] = hits
+    return True
+
+
+def ensure_admin() -> None:
+    users = read_json(USERS_FILE, [])
+    if not users or any(item.get("role") == "admin" for item in users):
+        return
+    users[0]["role"] = "admin"
+    write_json(USERS_FILE, users)
+
+
+def apply_price_overrides(payload: dict) -> dict:
+    overrides = {str(key).lower(): value for key, value in (FANTASY.config().get("priceOverrides") or {}).items()}
+    if not overrides:
+        return payload
+    rows = payload.get("players")
+    if isinstance(rows, list):
+        for player in rows:
+            price = overrides.get(str(player.get("name") or "").lower())
+            if price not in (None, ""):
+                player["price"] = float(price)
+                player["override"] = True
+        return payload
+    price = overrides.get(str(payload.get("name") or "").lower())
+    if price not in (None, ""):
+        payload["price"] = float(price)
+        payload["override"] = True
+    return payload
+
+
+def fantasy_housekeeping() -> None:
+    while True:
+        time.sleep(1800)
+        try:
+            FANTASY.heartbeat()
+        except Exception as err:  # noqa: BLE001
+            FANTASY_LOG.parent.mkdir(exist_ok=True)
+            with FANTASY_LOG.open("a", encoding="utf-8") as handle:
+                handle.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} beat {err}\n")
+
+
 def openai_api_key() -> str:
     cfg = read_json(CONFIG_FILE, {})
     return (os.environ.get("OPENAI_API_KEY") or cfg.get("openaiApiKey") or "").strip()
@@ -70,6 +126,13 @@ def public_user(user: dict) -> dict:
         "favorites": user.get("favorites") or [],
         "createdAt": user.get("createdAt"),
         "updatedAt": user.get("updatedAt"),
+        "displayName": user.get("displayName") or user.get("name") or "",
+        "emailVerified": bool(user.get("emailVerified")),
+        "favouriteClub": user.get("favouriteClub") or "",
+        "privacy": user.get("privacy") or "public",
+        "role": user.get("role") or "member",
+        "country": user.get("country") or "",
+        "region": user.get("region") or "",
     }
 
 
@@ -142,8 +205,18 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(204)
         self.end_headers()
 
+    def _limited(self, path: str) -> bool:
+        if not path.startswith("/api/"):
+            return False
+        if rate_ok(self.client_address[0]):
+            return False
+        self.json_response({"error": "Too many requests. Wait a minute and try again."}, 429)
+        return True
+
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
+        if self._limited(parsed.path):
+            return None
         if parsed.path.startswith("/proxy/espn/"):
             return self.proxy_espn(parsed)
         if parsed.path == "/api/auth/me":
@@ -156,10 +229,30 @@ class Handler(SimpleHTTPRequestHandler):
             return self.ai_status()
         if parsed.path == "/api/fantasy/quote":
             return self.fantasy_quote(parsed)
+        if parsed.path == "/api/fantasy/players":
+            return self.fantasy_players(parsed)
+        if parsed.path == "/api/fantasy/league":
+            return self.fantasy_league_get(parsed)
+        if parsed.path == "/api/fantasy/leagues":
+            return self.fantasy_leagues(parsed)
+        if parsed.path == "/api/fantasy/rankings":
+            params = urllib.parse.parse_qs(parsed.query or "")
+            country = (params.get("country") or [""])[0]
+            region = (params.get("region") or [""])[0]
+            sort = (params.get("sort") or ["overall"])[0]
+            return self.json_response({"rankings": FANTASY.rankings(country, region, sort)})
+        if parsed.path == "/api/fantasy/stats":
+            return self.json_response(FANTASY.popularity())
+        if parsed.path == "/api/fantasy/health":
+            return self.json_response(FANTASY.health())
+        if parsed.path == "/api/fantasy/config":
+            return self.json_response(FANTASY.config())
         return super().do_GET()
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
+        if self._limited(parsed.path):
+            return None
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b"{}"
         try:
@@ -176,6 +269,22 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/auth/favorites": self.auth_favorites,
             "/api/auth/config": self.auth_config_save,
             "/api/ai/chat": self.ai_chat,
+            "/api/auth/verify/request": self.auth_verify_request,
+            "/api/auth/verify": self.auth_verify,
+            "/api/auth/reset/request": self.auth_reset_request,
+            "/api/auth/reset": self.auth_reset,
+            "/api/auth/delete": self.auth_delete,
+            "/api/auth/profile": self.auth_profile,
+            "/api/fantasy/league": self.fantasy_league_create,
+            "/api/fantasy/league/join": self.fantasy_league_join,
+            "/api/fantasy/league/leave": self.fantasy_league_leave,
+            "/api/fantasy/league/delete": self.fantasy_league_delete,
+            "/api/fantasy/entry": self.fantasy_entry,
+            "/api/fantasy/config": self.fantasy_config_save,
+            "/api/fantasy/league/chat": self.fantasy_chat,
+            "/api/fantasy/league/poll": self.fantasy_poll,
+            "/api/fantasy/league/vote": self.fantasy_vote,
+            "/api/fantasy/reset": self.fantasy_reset,
         }
         handler = routes.get(parsed.path)
         if not handler:
@@ -342,9 +451,11 @@ class Handler(SimpleHTTPRequestHandler):
             return self.json_response({"error": "That username is taken."}, 400)
         if phone and find_user(users, phone):
             return self.json_response({"error": "That phone number is already registered."}, 400)
+        has_admin = any(item.get("role") == "admin" for item in users)
         user = {
             "id": str(uuid.uuid4()),
             "name": name,
+            "displayName": name,
             "email": email,
             "username": username,
             "phone": phone,
@@ -352,6 +463,10 @@ class Handler(SimpleHTTPRequestHandler):
             "provider": "email",
             "picture": "",
             "favorites": [],
+            "emailVerified": False,
+            "favouriteClub": "",
+            "privacy": "public",
+            "role": "member" if has_admin else "admin",
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         upsert_user(users, user)
@@ -504,12 +619,205 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
 
+    def current_user(self):
+        return user_from_session(self.session_token())
+
+    def auth_verify_request(self, _body):
+        user = self.current_user()
+        if not user:
+            return self.json_response({"error": "Sign in first."}, 401)
+        code = f"{secrets.randbelow(1000000):06d}"
+        user["verifyCode"] = code
+        users = read_json(USERS_FILE, [])
+        upsert_user(users, user)
+        return self.json_response({"code": code, "note": "Enter this code to verify the email on the account.", "user": public_user(user)})
+
+    def auth_verify(self, body):
+        user = self.current_user()
+        if not user:
+            return self.json_response({"error": "Sign in first."}, 401)
+        if str(body.get("code") or "") != str(user.get("verifyCode") or ""):
+            return self.json_response({"error": "That code does not match."}, 400)
+        user["emailVerified"] = True
+        user["verifyCode"] = ""
+        upsert_user(read_json(USERS_FILE, []), user)
+        return self.json_response({"user": public_user(user)})
+
+    def auth_reset_request(self, body):
+        users = read_json(USERS_FILE, [])
+        user = find_user(users, str(body.get("identity") or ""))
+        if not user:
+            return self.json_response({"error": "No account with those details."}, 404)
+        code = f"{secrets.randbelow(1000000):06d}"
+        user["resetCode"] = code
+        upsert_user(users, user)
+        return self.json_response({"code": code, "note": "Use this code to choose a new password."})
+
+    def auth_reset(self, body):
+        users = read_json(USERS_FILE, [])
+        user = find_user(users, str(body.get("identity") or ""))
+        password = str(body.get("password") or "")
+        if not user or str(body.get("code") or "") != str(user.get("resetCode") or ""):
+            return self.json_response({"error": "Code or account did not match."}, 400)
+        if len(password) < 4:
+            return self.json_response({"error": "Password needs 4 or more characters."}, 400)
+        user["password"] = password
+        user["resetCode"] = ""
+        upsert_user(users, user)
+        return self.json_response({"ok": True})
+
+    def auth_delete(self, _body):
+        user = self.current_user()
+        if not user:
+            return self.json_response({"error": "Sign in first."}, 401)
+        users = [item for item in read_json(USERS_FILE, []) if item.get("id") != user.get("id")]
+        write_json(USERS_FILE, users)
+        sessions = read_json(SESSIONS_FILE, {})
+        token = self.session_token()
+        sessions.pop(token, None)
+        write_json(SESSIONS_FILE, sessions)
+        return self.json_response({"ok": True}, clear_session=True)
+
+    def auth_profile(self, body):
+        user = self.current_user()
+        if not user:
+            return self.json_response({"error": "Sign in first."}, 401)
+        for key in ("name", "displayName", "username", "picture", "favouriteClub", "privacy", "country", "region"):
+            if key in body and body[key] is not None:
+                user[key] = str(body[key])[:80]
+        users = read_json(USERS_FILE, [])
+        if user.get("username") and any(item.get("id") != user.get("id") and (item.get("username") or "").lower() == user["username"].lower() for item in users):
+            return self.json_response({"error": "That username is taken."}, 400)
+        upsert_user(users, user)
+        return self.json_response({"user": public_user(user)})
+
+    def fantasy_players(self, parsed):
+        params = urllib.parse.parse_qs(parsed.query or "")
+        def one(key):
+            return (params.get(key) or [""])[0]
+        max_price = one("maxPrice")
+        min_points = one("minPoints")
+        min_form = one("minForm")
+        try:
+            payload = fantasy_prices.list_players(
+                query=one("q"),
+                slot=one("slot"),
+                club=one("club"),
+                sort=one("sort") or "price",
+                limit=int(one("limit") or 40),
+                offset=int(one("offset") or 0),
+                max_price=float(max_price) if max_price else None,
+                min_points=float(min_points) if min_points else None,
+                status=one("status"),
+                min_form=float(min_form) if min_form else None,
+            )
+            payload = apply_price_overrides(payload)
+        except Exception as err:  # noqa: BLE001
+            FANTASY_LOG.parent.mkdir(exist_ok=True)
+            with FANTASY_LOG.open("a", encoding="utf-8") as handle:
+                handle.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} players {err}\n")
+            return self.json_response({"players": [], "error": str(err)}, 502)
+        return self.json_response(payload)
+
+    def fantasy_league_get(self, parsed):
+        params = urllib.parse.parse_qs(parsed.query or "")
+        code = (params.get("code") or [""])[0]
+        league = FANTASY.league(code)
+        if not league:
+            return self.json_response({"error": "League not found."}, 404)
+        return self.json_response(league)
+
+    def fantasy_leagues(self, parsed):
+        params = urllib.parse.parse_qs(parsed.query or "")
+        query = (params.get("q") or [""])[0]
+        return self.json_response({"leagues": FANTASY.search(query)})
+
+    def _actor(self, body):
+        user = self.current_user()
+        if user:
+            return {"id": user.get("id"), "name": body.get("manager") or user.get("displayName") or user.get("name"), "teamName": body.get("teamName") or "Fantasy"}
+        return {"id": str(body.get("userId") or ""), "name": body.get("manager") or "Manager", "teamName": body.get("teamName") or "Fantasy"}
+
+    def fantasy_league_create(self, body):
+        actor = self._actor(body)
+        if not actor["id"]:
+            return self.json_response({"error": "Missing manager."}, 400)
+        league = FANTASY.create_league(str(body.get("name") or "League"), str(body.get("kind") or "classic"), str(body.get("privacy") or "private"), actor)
+        return self.json_response(league)
+
+    def fantasy_league_join(self, body):
+        actor = self._actor(body)
+        league = FANTASY.join(str(body.get("code") or ""), actor)
+        if not league:
+            return self.json_response({"error": "League not found."}, 404)
+        return self.json_response(league)
+
+    def fantasy_league_leave(self, body):
+        actor = self._actor(body)
+        league = FANTASY.leave(str(body.get("code") or ""), actor["id"], body.get("removeId"))
+        if not league:
+            return self.json_response({"error": "Could not update that league."}, 400)
+        return self.json_response(league)
+
+    def fantasy_league_delete(self, body):
+        actor = self._actor(body)
+        if not FANTASY.delete_league(str(body.get("code") or ""), actor["id"]):
+            return self.json_response({"error": "Only the league admin can delete it."}, 403)
+        return self.json_response({"ok": True})
+
+    def fantasy_entry(self, body):
+        actor = self._actor(body)
+        if not actor["id"]:
+            return self.json_response({"error": "Missing manager."}, 400)
+        squad = FANTASY.entry(actor["id"], {**body, "name": actor["name"], "teamName": actor["teamName"]})
+        return self.json_response(squad)
+
+    def fantasy_config_save(self, body):
+        user = self.current_user()
+        if not user or user.get("role") != "admin":
+            return self.json_response({"error": "Admin only."}, 403)
+        return self.json_response(FANTASY.set_config(body))
+
     def fantasy_quote(self, parsed):
         params = urllib.parse.parse_qs(parsed.query or "")
         name = (params.get("name") or [""])[0]
         club = (params.get("club") or [""])[0]
         position = (params.get("position") or [""])[0]
-        return self.json_response(fantasy_prices.quote(name, club, position))
+        quoted = fantasy_prices.quote(name, club, position)
+        quoted["name"] = name
+        return self.json_response(apply_price_overrides(quoted))
+
+    def fantasy_chat(self, body):
+        actor = self._actor(body)
+        league = FANTASY.message(str(body.get("code") or ""), actor, str(body.get("text") or ""))
+        if not league:
+            return self.json_response({"error": "Join the league before posting."}, 400)
+        return self.json_response(league)
+
+    def fantasy_poll(self, body):
+        actor = self._actor(body)
+        options = body.get("options") if isinstance(body.get("options"), list) else str(body.get("options") or "").split(",")
+        league = FANTASY.poll(str(body.get("code") or ""), actor, str(body.get("question") or ""), options)
+        if not league:
+            return self.json_response({"error": "Only the league admin can open a poll."}, 403)
+        return self.json_response(league)
+
+    def fantasy_vote(self, body):
+        actor = self._actor(body)
+        try:
+            option = int(body.get("option"))
+        except (TypeError, ValueError):
+            return self.json_response({"error": "Pick an option."}, 400)
+        league = FANTASY.vote(str(body.get("code") or ""), actor["id"], str(body.get("pollId") or ""), option)
+        if not league:
+            return self.json_response({"error": "Vote was not recorded."}, 400)
+        return self.json_response(league)
+
+    def fantasy_reset(self, _body):
+        user = self.current_user()
+        if not user or user.get("role") != "admin":
+            return self.json_response({"error": "Admin only."}, 403)
+        return self.json_response(FANTASY.reset())
 
     def log_message(self, fmt, *args):
         msg = str(args[0] if args else "")
@@ -523,7 +831,9 @@ if __name__ == "__main__":
         write_json(USERS_FILE, [])
     if not SESSIONS_FILE.exists():
         write_json(SESSIONS_FILE, {})
+    ensure_admin()
     threading.Thread(target=fantasy_prices.warm, name="fantasy-prices", daemon=True).start()
+    threading.Thread(target=fantasy_housekeeping, name="fantasy-housekeeping", daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"NINETY server on http://localhost:{PORT}", flush=True)
     server.serve_forever()

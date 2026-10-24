@@ -960,6 +960,80 @@ button, input { font: inherit; color: inherit; }
   font-weight: 650;
 }
 
+html[data-theme="light"] {
+  --bg: #f6f1e6;
+  --grouped: rgba(255, 255, 255, 0.84);
+  --grouped-solid: #fffaf1;
+  --grouped-2: rgba(255, 255, 255, 0.94);
+  --ink: #1a1a1a;
+  --secondary: #5c5348;
+  --separator: rgba(26, 26, 26, 0.12);
+  --nav-blur: rgba(246, 241, 230, 0.82);
+  --tab-blur: rgba(246, 241, 230, 0.9);
+  --glass: rgba(255, 255, 255, 0.62);
+  --glass-border: rgba(26, 26, 26, 0.12);
+  --shadow: 0 18px 40px rgba(80, 60, 20, 0.12);
+  color-scheme: light;
+}
+
+html[data-theme="light"] body {
+  background:
+    radial-gradient(900px 480px at 0% -10%, rgba(0, 87, 184, 0.16), transparent 55%),
+    radial-gradient(800px 420px at 100% 0%, rgba(212, 175, 55, 0.24), transparent 50%),
+    #f6f1e6;
+}
+
+.ticker {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 0 12px 8px;
+}
+
+.ticker span {
+  flex: 0 0 auto;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--secondary);
+  font-size: 12px;
+}
+
+.club-badge {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.fantasy-nav {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 12px 0;
+}
+
+.fantasy-nav .seg-btn { flex: 0 0 auto; }
+
+.fantasy-link { width: 100%; }
+
+.fantasy-page .team-search { margin-top: 8px; }
+
+.bar {
+  display: inline-block;
+  width: 90px;
+  height: 8px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.12);
+  vertical-align: middle;
+}
+
+.bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--gold, #d4af37);
+}
+
 .fantasy-hit { cursor: default; }
 .fantasy-hit .mini-btn { justify-self: end; }
 .fantasy-actions {

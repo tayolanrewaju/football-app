@@ -164,7 +164,8 @@
     return counted;
   }
 
-  function weekPoints(squad, sheets) {
+  function weekPoints(squad, sheets, options) {
+    const opts = options || {};
     const byId = new Map();
     (sheets || []).forEach((sheet) => {
       sheetRows(sheet).forEach((row) => {
@@ -179,19 +180,20 @@
       });
     });
     const minutesById = new Map([...byId.entries()].map(([id, row]) => [id, row.minutes]));
-    const counted = autosub(squad, minutesById);
+    const counted = opts.benchBoost ? squad.filter((player) => (minutesById.get(String(player.id)) || 0) > 0) : autosub(squad, minutesById);
     const countedIds = new Set(counted.map((player) => player.id));
     const captainPlayed = counted.some((player) => player.captain && (minutesById.get(String(player.id)) || 0) > 0);
+    const multiplier = opts.triple ? 3 : 2;
     let total = 0;
     const players = squad.map((player) => {
       const row = byId.get(String(player.id)) || { points: 0, minutes: 0, lines: [] };
       const active = countedIds.has(player.id);
       const doubled = active && ((player.captain && captainPlayed) || (player.vice && !captainPlayed && row.minutes > 0));
-      const points = active ? row.points * (doubled ? 2 : 1) : 0;
+      const points = active ? row.points * (doubled ? multiplier : 1) : 0;
       if (active) total += points;
-      return { ...player, active, doubled, points, minutes: row.minutes, breakdown: row.lines };
+      return { ...player, active, doubled, multiplier: doubled ? multiplier : 1, points, minutes: row.minutes, breakdown: row.lines };
     });
-    return { total, players };
+    return { total, players, benchBoost: !!opts.benchBoost, triple: !!opts.triple };
   }
 
   function canAdd(squad, slot) {
@@ -204,6 +206,20 @@
     return xi.filter((player) => player.slot === slot).length < XI_MAX[slot];
   }
 
+  function weekKey(now = new Date()) {
+    return [...weekKeys(now)][0];
+  }
+
+  function deadlineMs(matches, now = new Date(), offsetMin = 90) {
+    const keys = weekKeys(now);
+    const times = (matches || [])
+      .filter((match) => keys.has(londonDayKey(match.start)))
+      .map((match) => new Date(match.start).getTime())
+      .filter((time) => Number.isFinite(time));
+    if (!times.length) return null;
+    return Math.min(...times) - offsetMin * 60 * 1000;
+  }
+
   root.NINETY_FANTASY = {
     BUDGET,
     LIMITS,
@@ -214,6 +230,8 @@
     applyBonus,
     weekPoints,
     inThisWeek,
+    weekKey,
+    deadlineMs,
     canAdd,
     canStart,
   };
@@ -234,6 +252,31 @@
     ]);
     const top = bonus.find((row) => row.id === "1");
     if (!top.bonus) throw new Error("bonus missing");
-    console.log("fantasy self-test ok", { forward: forward.points, keeper: keeper.points, defender: defender.points, bonus: top.bonus });
+    const squad = [
+      { id: "c", slot: "A", xi: true, captain: true, name: "Cap" },
+      { id: "b", slot: "A", xi: false, name: "Bench" },
+    ];
+    const sheets = [{ label: "Test", players: [
+      { id: "c", slot: "A", minutes: 90 },
+      { id: "b", slot: "A", minutes: 90 },
+    ] }];
+    const plain = weekPoints(squad, sheets);
+    const triple = weekPoints(squad, sheets, { triple: true });
+    const boost = weekPoints(squad, sheets, { benchBoost: true });
+    const captain = plain.players.find((player) => player.id === "c");
+    const benched = plain.players.find((player) => player.id === "b");
+    if (benched.points !== 0) throw new Error("bench should not score");
+    if (triple.players.find((player) => player.id === "c").points !== (captain.points / 2) * 3) throw new Error("triple captain");
+    if (boost.players.find((player) => player.id === "b").points <= 0) throw new Error("bench boost");
+    const cover = weekPoints(
+      [
+        { id: "s", slot: "M", xi: true, captain: true, name: "Starter" },
+        { id: "u", slot: "M", xi: false, name: "Sub" },
+      ],
+      [{ players: [{ id: "u", slot: "M", minutes: 90 }] }]
+    );
+    if (!cover.players.find((player) => player.id === "u").active) throw new Error("autosub");
+    if (cover.players.find((player) => player.id === "s").points !== 0) throw new Error("starter should sit");
+    console.log("fantasy self-test ok", { forward: forward.points, keeper: keeper.points, defender: defender.points, bonus: top.bonus, triple: triple.total, boost: boost.total });
   }
 })(typeof window !== "undefined" ? window : globalThis);
