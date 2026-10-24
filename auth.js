@@ -22,6 +22,10 @@
       displayName: user.displayName || user.name || "",
       emailVerified: !!user.emailVerified,
       favouriteClub: user.favouriteClub || "",
+      favouritePlayers: Array.isArray(user.favouritePlayers) ? user.favouritePlayers : [],
+      country: user.country || "",
+      region: user.region || "",
+      fantasy: user.fantasy && typeof user.fantasy === "object" ? user.fantasy : null,
       privacy: user.privacy || "public",
       role: user.role || "member",
     };
@@ -161,6 +165,17 @@
       return { config: authConfig, user: currentUser(), googleReady, appleReady };
     })();
     return initPromise;
+  }
+
+  async function requestSignupCode(email) {
+    return api("/api/auth/signup/code", { method: "POST", body: { email } });
+  }
+
+  async function syncAccount(payload) {
+    const session = currentUser();
+    if (!session?.id) return null;
+    const data = await api("/api/auth/sync", { method: "POST", body: payload });
+    return setCached(data.user);
   }
 
   async function register(payload) {
@@ -390,6 +405,8 @@
   window.NINETY_AUTH = {
     init,
     register,
+    requestSignupCode,
+    syncAccount,
     login,
     socialLogin,
     continueWithGoogle,

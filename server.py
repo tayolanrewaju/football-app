@@ -4,16 +4,19 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import mimetypes
 import os
 import secrets
+import smtplib
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from email.message import EmailMessage
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,6 +36,7 @@ FANTASY_LOG = DATA_DIR / "fantasy.log"
 USERS_FILE = DATA_DIR / "users.json"
 SESSIONS_FILE = DATA_DIR / "sessions.json"
 CONFIG_FILE = DATA_DIR / "auth-config.json"
+SIGNUP_FILE = DATA_DIR / "signup-codes.json"
 
 ESPN_HOSTS = {
     "site": "https://site.api.espn.com",
@@ -134,6 +138,8 @@ def public_user(user: dict) -> dict:
         "role": user.get("role") or "member",
         "country": user.get("country") or "",
         "region": user.get("region") or "",
+        "favouritePlayers": user.get("favouritePlayers") or [],
+        "fantasy": user.get("fantasy") if isinstance(user.get("fantasy"), dict) else None,
     }
 
 
@@ -147,6 +153,55 @@ def find_user(users: list, identity: str):
         if (user.get("phone") or "").lower() == q:
             return user
     return None
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120_000).hex()
+    return f"pbkdf2${salt}${digest}"
+
+
+def password_ok(stored: str, password: str) -> bool:
+    saved = str(stored or "")
+    if saved.startswith("pbkdf2$"):
+        _, salt, digest = saved.split("$", 2)
+        check = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120_000).hex()
+        return secrets.compare_digest(check, digest)
+    return secrets.compare_digest(saved, password)
+
+
+def send_email(to: str, subject: str, body: str) -> None:
+    cfg = read_json(CONFIG_FILE, {})
+    host = (os.environ.get("SMTP_HOST") or cfg.get("smtpHost") or "").strip()
+    if not host:
+        raise RuntimeError("Email delivery is not set up on this server.")
+    port = int(os.environ.get("SMTP_PORT") or cfg.get("smtpPort") or 587)
+    user = (os.environ.get("SMTP_USER") or cfg.get("smtpUser") or "").strip()
+    password = os.environ.get("SMTP_PASS") or cfg.get("smtpPass") or ""
+    sender = (os.environ.get("SMTP_FROM") or cfg.get("smtpFrom") or user or "derby@localhost").strip()
+    message = EmailMessage()
+    message["From"] = sender
+    message["To"] = to
+    message["Subject"] = subject
+    message.set_content(body)
+    use_tls = (os.environ.get("SMTP_TLS") or str(cfg.get("smtpTls") or "1")) != "0"
+    with smtplib.SMTP(host, port, timeout=20) as smtp:
+        smtp.ehlo()
+        if use_tls and port != 25:
+            smtp.starttls()
+            smtp.ehlo()
+        if user:
+            smtp.login(user, password)
+        smtp.send_message(message)
+
+
+def issue_code(email: str) -> str:
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    pending = read_json(SIGNUP_FILE, {})
+    pending[email.lower()] = {"code": code, "exp": time.time() + 900}
+    write_json(SIGNUP_FILE, pending)
+    send_email(email, "Your Derby confirmation code", f"Your Derby confirmation code is {code}. It expires in 15 minutes.")
+    return code
 
 
 def upsert_user(users: list, user: dict) -> dict:
@@ -265,6 +320,8 @@ class Handler(SimpleHTTPRequestHandler):
 
         routes = {
             "/api/auth/register": self.auth_register,
+            "/api/auth/signup/code": self.auth_signup_code,
+            "/api/auth/sync": self.auth_sync,
             "/api/auth/login": self.auth_login,
             "/api/auth/google": self.auth_google,
             "/api/auth/apple": self.auth_apple,
@@ -519,6 +576,10 @@ class Handler(SimpleHTTPRequestHandler):
         email = str(body.get("email") or "").strip()
         username = str(body.get("username") or "").strip()
         phone = str(body.get("phone") or "").strip()
+        code = str(body.get("code") or "").strip()
+        country = str(body.get("country") or "").strip()
+        favourite_club = str(body.get("favouriteClub") or "").strip()
+        favourite_players = body.get("favouritePlayers") if isinstance(body.get("favouritePlayers"), list) else []
         if not name or len(password) < 4:
             return self.json_response({"error": "Name and a password (4+ characters) are required."}, 400)
         if not email and not username and not phone:
@@ -526,6 +587,13 @@ class Handler(SimpleHTTPRequestHandler):
         users = read_json(USERS_FILE, [])
         if email and find_user(users, email):
             return self.json_response({"error": "That email is already registered."}, 400)
+        if email:
+            pending = read_json(SIGNUP_FILE, {})
+            row = pending.get(email.lower())
+            if not row or time.time() > float(row.get("exp") or 0) or code != str(row.get("code") or ""):
+                return self.json_response({"error": "That confirmation code does not match. Request a new one."}, 400)
+            pending.pop(email.lower(), None)
+            write_json(SIGNUP_FILE, pending)
         if username and find_user(users, username):
             return self.json_response({"error": "That username is taken."}, 400)
         if phone and find_user(users, phone):
@@ -538,12 +606,14 @@ class Handler(SimpleHTTPRequestHandler):
             "email": email,
             "username": username,
             "phone": phone,
-            "password": password,
+            "password": hash_password(password),
             "provider": "email",
             "picture": "",
-            "favorites": [],
-            "emailVerified": False,
-            "favouriteClub": "",
+            "favorites": [favourite_club] if favourite_club else [],
+            "emailVerified": bool(email),
+            "favouriteClub": favourite_club,
+            "favouritePlayers": favourite_players[:12],
+            "country": country,
             "privacy": "public",
             "role": "member" if has_admin else "admin",
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -557,8 +627,11 @@ class Handler(SimpleHTTPRequestHandler):
         password = str(body.get("password") or "")
         users = read_json(USERS_FILE, [])
         user = find_user(users, identity)
-        if not user or user.get("password") != password:
+        if not user or not password_ok(user.get("password") or "", password):
             return self.json_response({"error": "Incorrect details."}, 401)
+        if user.get("password") and not str(user.get("password")).startswith("pbkdf2$"):
+            user["password"] = hash_password(password)
+            upsert_user(users, user)
         token = create_session(user["id"])
         return self.json_response({"user": public_user(user)}, session_token=token)
 
@@ -701,15 +774,58 @@ class Handler(SimpleHTTPRequestHandler):
     def current_user(self):
         return user_from_session(self.session_token())
 
+    def auth_signup_code(self, body):
+        email = str(body.get("email") or "").strip().lower()
+        if "@" not in email or "." not in email.split("@")[-1]:
+            return self.json_response({"error": "Add a real email address."}, 400)
+        if find_user(read_json(USERS_FILE, []), email):
+            return self.json_response({"error": "That email is already registered."}, 400)
+        try:
+            issue_code(email)
+        except Exception as err:  # noqa: BLE001
+            return self.json_response({"error": str(err)}, 502)
+        return self.json_response({"sent": True})
+
+    def auth_sync(self, body):
+        user = self.current_user()
+        if not user:
+            return self.json_response({"error": "Not signed in"}, 401)
+        users = read_json(USERS_FILE, [])
+        current = next((item for item in users if item.get("id") == user.get("id")), None)
+        if not current:
+            return self.json_response({"error": "User missing"}, 404)
+        if isinstance(body.get("favorites"), list):
+            current["favorites"] = [str(item) for item in body["favorites"] if str(item).strip()][:80]
+        fantasy = body.get("fantasy")
+        if isinstance(fantasy, dict):
+            badge = fantasy.get("badgeImage") or ""
+            if isinstance(badge, str) and len(badge) > 400_000:
+                fantasy = {**fantasy, "badgeImage": ""}
+            current["fantasy"] = fantasy
+        for key in ("country", "favouriteClub", "region"):
+            if key in body:
+                current[key] = str(body.get(key) or "")
+        if isinstance(body.get("favouritePlayers"), list):
+            current["favouritePlayers"] = body["favouritePlayers"][:12]
+        upsert_user(users, current)
+        return self.json_response({"user": public_user(current)})
+
     def auth_verify_request(self, _body):
         user = self.current_user()
         if not user:
             return self.json_response({"error": "Sign in first."}, 401)
+        email = str(user.get("email") or "").strip()
+        if "@" not in email:
+            return self.json_response({"error": "Add an email to this account first."}, 400)
         code = f"{secrets.randbelow(1000000):06d}"
         user["verifyCode"] = code
         users = read_json(USERS_FILE, [])
         upsert_user(users, user)
-        return self.json_response({"code": code, "note": "Enter this code to verify the email on the account.", "user": public_user(user)})
+        try:
+            send_email(email, "Your Derby confirmation code", f"Your Derby confirmation code is {code}. It expires in 15 minutes.")
+        except Exception as err:  # noqa: BLE001
+            return self.json_response({"error": str(err)}, 502)
+        return self.json_response({"sent": True, "note": "Enter the code from your email.", "user": public_user(user)})
 
     def auth_verify(self, body):
         user = self.current_user()
@@ -727,10 +843,17 @@ class Handler(SimpleHTTPRequestHandler):
         user = find_user(users, str(body.get("identity") or ""))
         if not user:
             return self.json_response({"error": "No account with those details."}, 404)
+        email = str(user.get("email") or "").strip()
+        if "@" not in email:
+            return self.json_response({"error": "This account has no email to send a reset code to."}, 400)
         code = f"{secrets.randbelow(1000000):06d}"
         user["resetCode"] = code
         upsert_user(users, user)
-        return self.json_response({"code": code, "note": "Use this code to choose a new password."})
+        try:
+            send_email(email, "Your Derby password reset code", f"Your Derby password reset code is {code}. It expires when you use it.")
+        except Exception as err:  # noqa: BLE001
+            return self.json_response({"error": str(err)}, 502)
+        return self.json_response({"sent": True, "note": "Enter the code from your email."})
 
     def auth_reset(self, body):
         users = read_json(USERS_FILE, [])
@@ -740,7 +863,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.json_response({"error": "Code or account did not match."}, 400)
         if len(password) < 4:
             return self.json_response({"error": "Password needs 4 or more characters."}, 400)
-        user["password"] = password
+        user["password"] = hash_password(password)
         user["resetCode"] = ""
         upsert_user(users, user)
         return self.json_response({"ok": True})
