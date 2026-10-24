@@ -111,8 +111,8 @@ button, input { font: inherit; color: inherit; }
 }
 
 .app-logo {
-  width: 40px;
-  height: 40px;
+  width: 46px;
+  height: 46px;
   display: block;
   flex-shrink: 0;
 }

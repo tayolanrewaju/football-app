@@ -1,21 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Derby">
-  <rect width="64" height="64" rx="16" fill="#ffffff"/>
-  <defs>
-    <clipPath id="derbyField">
-      <path d="M32 11.4 L49.2 17.6 V34.4 C49.2 44.6 41.6 51.2 32 54.8 C22.4 51.2 14.8 44.6 14.8 34.4 V17.6 Z"/>
-    </clipPath>
-  </defs>
-  <path d="M32 8.8 L52 15.8 V34.6 C52 46.2 43.2 54 32 58 C20.8 54 12 46.2 12 34.6 V15.8 Z" fill="#0057b8"/>
-  <g clip-path="url(#derbyField)">
-    <rect x="15.2" y="12" width="5" height="44" fill="#f4f1e8"/>
-    <rect x="20.2" y="12" width="1.6" height="44" fill="#d4af37"/>
-    <rect x="41.2" y="12" width="2.5" height="44" fill="#1a1a1a"/>
-    <rect x="44.6" y="12" width="2.5" height="44" fill="#1a1a1a"/>
-    <path d="M16.2 22.4 C23 15.6 41 15.6 47.8 22.4 L46.2 26.6 C39.6 21.4 24.4 21.4 17.8 26.6 Z" fill="#d4af37"/>
+  <rect width="64" height="64" rx="16" fill="#1a1a1a"/>
+  <g transform="translate(32,1.5) scale(0.66) translate(-32,0)">
+    <defs>
+      <clipPath id="derbyField">
+        <path d="M32 11.4 L49.2 17.6 V34.4 C49.2 44.6 41.6 51.2 32 54.8 C22.4 51.2 14.8 44.6 14.8 34.4 V17.6 Z"/>
+      </clipPath>
+    </defs>
+    <path d="M32 8.8 L52 15.8 V34.6 C52 46.2 43.2 54 32 58 C20.8 54 12 46.2 12 34.6 V15.8 Z" fill="#0057b8"/>
+    <g clip-path="url(#derbyField)">
+      <rect x="15.2" y="12" width="5" height="44" fill="#f4f1e8"/>
+      <rect x="20.2" y="12" width="1.6" height="44" fill="#d4af37"/>
+      <rect x="41.2" y="12" width="2.5" height="44" fill="#1a1a1a"/>
+      <rect x="44.6" y="12" width="2.5" height="44" fill="#1a1a1a"/>
+      <path d="M16.2 22.4 C23 15.6 41 15.6 47.8 22.4 L46.2 26.6 C39.6 21.4 24.4 21.4 17.8 26.6 Z" fill="#d4af37"/>
+    </g>
+    <path d="M32 11.4 L49.2 17.6 V34.4 C49.2 44.6 41.6 51.2 32 54.8 C22.4 51.2 14.8 44.6 14.8 34.4 V17.6 Z" fill="none" stroke="#d4af37" stroke-width="0.9"/>
+    <path d="M32 8.8 L52 15.8 V34.6 C52 46.2 43.2 54 32 58 C20.8 54 12 46.2 12 34.6 V15.8 Z" fill="none" stroke="#d4af37" stroke-width="1.8" stroke-linejoin="round"/>
+    <circle cx="32" cy="36.2" r="8.4" fill="#f7f4ec" stroke="#1a1a1a" stroke-width="1.15"/>
+    <polygon points="32,30.6 36.1,33.6 34.5,38.4 29.5,38.4 27.9,33.6" fill="#1a1a1a"/>
+    <path d="M32 28 V30.6 M24.4 33.4 L27.9 33.6 M39.6 33.4 L36.1 33.6 M26.4 42.2 L29.5 38.4 M37.6 42.2 L34.5 38.4" fill="none" stroke="#1a1a1a" stroke-width="0.95" stroke-linecap="round"/>
   </g>
-  <path d="M32 11.4 L49.2 17.6 V34.4 C49.2 44.6 41.6 51.2 32 54.8 C22.4 51.2 14.8 44.6 14.8 34.4 V17.6 Z" fill="none" stroke="#d4af37" stroke-width="0.9"/>
-  <path d="M32 8.8 L52 15.8 V34.6 C52 46.2 43.2 54 32 58 C20.8 54 12 46.2 12 34.6 V15.8 Z" fill="none" stroke="#d4af37" stroke-width="1.8" stroke-linejoin="round"/>
-  <circle cx="32" cy="36.2" r="8.4" fill="#f7f4ec" stroke="#1a1a1a" stroke-width="1.15"/>
-  <polygon points="32,30.6 36.1,33.6 34.5,38.4 29.5,38.4 27.9,33.6" fill="#1a1a1a"/>
-  <path d="M32 28 V30.6 M24.4 33.4 L27.9 33.6 M39.6 33.4 L36.1 33.6 M26.4 42.2 L29.5 38.4 M37.6 42.2 L34.5 38.4" fill="none" stroke="#1a1a1a" stroke-width="0.95" stroke-linecap="round"/>
+  <rect x="6" y="47" width="52" height="13" rx="4" fill="#d4af37"/>
+  <text x="32" y="56.2" text-anchor="middle" fill="#1a1a1a" font-family="Arial Black, Impact, sans-serif" font-size="8.6" letter-spacing="1.15">DERBY</text>
 </svg>
