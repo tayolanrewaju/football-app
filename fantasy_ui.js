@@ -141,6 +141,7 @@
   };
   const BADGE_COLORS = ["#102a52", "#0057b8", "#1a1a1a", "#6b4e16", "#7a1f3d"];
   let homeTab = "leagues";
+  let boardFocus = "overall";
 
   function flagFor(country) {
     return FLAGS[String(country || "").trim().toLowerCase()] || "";
@@ -329,7 +330,7 @@
       leagueBox.querySelectorAll("[data-league]").forEach((button) => {
         button.addEventListener("click", () => {
           leagueCode = button.dataset.league;
-          go(homeTab === "cups" ? "cup" : "league");
+          go("league");
         });
       });
     }
@@ -340,19 +341,25 @@
     const previousWeek = state.boardMarks?.week;
     const previousLocal = state.boardMarks?.country;
     const general = [
-      ["Overall", me?.rank, overall.rankings?.length, previousOverall, "ranks"],
-      country ? [country, meLocal?.rank, local.rankings?.length, previousLocal, "ranks"] : null,
-      [`Gameweek ${GAME().weekNumber()}`, meWeek?.rank, week.rankings?.length, previousWeek, "ranks"],
+      ["overall", "Overall", me?.rank, overall.rankings?.length, previousOverall],
+      country ? ["country", country, meLocal?.rank, local.rankings?.length, previousLocal] : null,
+      ["week", `Gameweek ${GAME().weekNumber()}`, meWeek?.rank, week.rankings?.length, previousWeek],
     ].filter(Boolean);
     const generalBox = ctx.list.querySelector("#home-general");
     if (generalBox) {
       generalBox.innerHTML = general
-        .map(([label, rank, total, previous]) => {
+        .map(([board, label, rank, total, previous]) => {
           const place = rank ? commas(rank) : "–";
           const ofTotal = total ? ` <small>of ${commas(total)}</small>` : "";
-          return `<button type="button" class="fpl-league" data-screen="ranks"><span>${esc(label)}</span><span class="fpl-rank">${place}${ofTotal} ${rank ? moveMark(rank, previous) : `<span class="rank-flat">–</span>`}</span></button>`;
+          return `<button type="button" class="fpl-league" data-board="${board}"><span>${esc(label)}</span><span class="fpl-rank">${place}${ofTotal} ${rank ? moveMark(rank, previous) : `<span class="rank-flat">–</span>`}</span></button>`;
         })
         .join("");
+      generalBox.querySelectorAll("[data-board]").forEach((button) => {
+        button.addEventListener("click", () => {
+          boardFocus = button.dataset.board;
+          go("ranks");
+        });
+      });
     }
     state.leagueMarks = marks;
     state.boardMarks = { overall: me?.rank || null, week: meWeek?.rank || null, country: meLocal?.rank || null };
@@ -493,7 +500,7 @@
   }
 
   function chipFace(id) {
-    if (state.chipThisWeek === id) return { text: "Playing", used: true };
+    if (state.chipThisWeek === id || state.chipQueued === id) return { text: "Playing", used: true };
     const used = state.chips?.[id];
     if (!used) return { text: "Play", used: false };
     const week = GAME().weekNumber(new Date(`${used}T12:00:00Z`));
@@ -528,7 +535,9 @@
       const need = slot === "G" ? 1 : shape[slot] || 0;
       const players = xi.filter((player) => player.slot === slot);
       const cells = players.map((player) => card(player));
-      while (cells.length < need) cells.push(shirtCard(null));
+      while (cells.length < need) {
+        cells.push(`<button type="button" class="shirt-card is-empty is-add" data-add-slot="${slot}" aria-label="Add ${SLOT_LABEL[slot] || "player"}"><span class="shirt-photo"><span class="shirt-plus" aria-hidden="true">+</span></span><span class="shirt-name"></span></button>`);
+      }
       return `<div class="gw-line" data-line="${slot}">${cells.join("")}</div>`;
     });
     const crest = state.badgeImage
@@ -670,6 +679,13 @@
         startBenchPlayer(button.dataset.xi);
       });
     });
+    ctx.list.querySelectorAll("[data-add-slot]").forEach((button) => {
+      button.addEventListener("click", () => {
+        transferTab = "list";
+        transferFocus = true;
+        go("transfers");
+      });
+    });
     ctx.list.querySelector("#share-team")?.addEventListener("click", async () => {
       const lines = [`${state.teamName || "Fantasy"} · ${state.formation}`, ...state.squad.map((player) => `${player.xi ? "XI" : "Bench"} ${player.slot} ${player.name}${player.captain ? " (C)" : ""}${player.vice ? " (V)" : ""}`)];
       const text = lines.join("\n");
@@ -713,7 +729,7 @@
         <p class="group-title">${esc(idea.note)}</p>
         <div class="fantasy-actions"><button type="button" class="mini-btn" id="undo-transfer">Undo last transfer</button><button type="button" class="mini-btn" id="ask-transfer">Ask Derby</button></div>
         <form class="team-search" id="sign-form">
-          <input name="q" placeholder="Search a player to buy" />
+          <input name="q" placeholder="Search a player to buy" ${transferFocus ? "autofocus" : ""} />
           <button class="search-go" type="submit">Search</button>
         </form>
         <div id="sign-results"></div>
@@ -1639,9 +1655,16 @@
     }
     const mine = managerId();
     const admin = league.adminId === mine;
+    const table = [...(league.members || [])].sort((a, b) => (a.rank || 99) - (b.rank || 99));
     shell(`
-      <p class="group-title">${esc(league.name)} · ${esc(league.code)} · ${esc(league.kind)} · ${esc(league.privacy)}</p>
-      <div class="group">${league.members.map((member) => `<div class="setting-row"><strong>${member.rank}. ${esc(member.teamName)}</strong><span>${member.points} · GW ${member.weekPoints} · ${esc(member.name)}${admin && member.userId !== mine ? ` <button type="button" class="mini-btn" data-remove="${esc(member.userId)}">Remove</button>` : ""}</span></div>`).join("")}</div>
+      <p class="group-title">${esc(league.name)} · ${esc(league.code)}</p>
+      <h3 class="standings-title">Standings</h3>
+      <div class="standings">${table
+        .map(
+          (member) => `<div class="standing${member.userId === mine ? " is-me" : ""}"><b>${member.rank}</b><span><strong>${esc(member.teamName || "Team")}</strong><small>${esc(member.name || "")}</small></span><span><strong>${member.weekPoints ?? 0}</strong><small>GW</small></span><span><strong>${member.points ?? 0}</strong><small>Pts</small></span></div>`
+        )
+        .join("") || `<div class="empty">No managers in this league yet.</div>`}</div>
+      ${admin ? `<div class="group">${table.filter((member) => member.userId !== mine).map((member) => `<div class="setting-row"><span>${esc(member.teamName)}</span><button type="button" class="mini-btn" data-remove="${esc(member.userId)}">Remove</button></div>`).join("")}</div>` : ""}
       <div class="fantasy-actions">
         <button type="button" class="mini-btn" id="share">Copy invite</button>
         <button type="button" class="mini-btn" id="leave">Leave</button>
@@ -1649,6 +1672,15 @@
         <button type="button" class="mini-btn" id="to-cup">Cup</button>
         ${admin ? `<button type="button" class="mini-btn" id="delete-league">Delete league</button>` : ""}
       </div>
+      ${
+        league.cup?.rounds?.length
+          ? league.cup.rounds
+              .map(
+                (round) => `<p class="group-title">${esc(round.name || league.cup.round || "Cup")}</p><div class="group">${(round.ties || []).map((tie) => `<div class="setting-row"><strong>${esc(tie.home)} v ${esc(tie.away)}</strong><span>${esc(tie.winner || "")}</span></div>`).join("")}</div>`
+              )
+              .join("")
+          : ""
+      }
       <p class="group-title">League chat</p>
       <form class="team-search" id="chat-form"><input name="text" placeholder="Message the league" /><button class="search-go" type="submit">Send</button></form>
       <div class="group">${(league.messages || []).map((message) => `<div class="setting-row"><strong>${esc(message.name)}</strong><span>${esc(message.text)}</span></div>`).join("") || `<div class="empty">No messages yet.</div>`}</div>
@@ -1732,15 +1764,21 @@
       if (previous && previous.rank !== me.rank && state.notify?.rank) ctx.onNotice?.({ key: `rank-${state.weekKey}-${me.rank}`, title: "Rank change", body: `Overall rank is ${me.rank}.` });
       GAME().save(state);
     }
-    const list = (rows, field) => (rows || []).slice(0, 20).map((row) => `<div class="setting-row"><strong>${row.rank}. ${esc(row.teamName)}</strong><span>${row[field]} · ${esc(row.country || row.name || "")}</span></div>`).join("") || `<div class="empty">Ranks appear after a team is saved.</div>`;
+    const standings = (rows, field) =>
+      (rows || []).slice(0, 30).map((row) => `<div class="standing${row.userId === managerId() ? " is-me" : ""}"><b>${row.rank}</b><span><strong>${esc(row.teamName || "Team")}</strong><small>${esc(row.name || row.country || "")}</small></span><span><strong>${row[field] ?? 0}</strong><small>${field === "weekPoints" ? "GW" : "Pts"}</small></span></div>`).join("") || `<div class="empty">Standings appear after a team is saved.</div>`;
     const names = (rows) => (rows || []).map((row) => `${esc(row.name)} · ${row.count}`).join(", ") || "None yet";
+    const focusTitle = boardFocus === "week" ? "Gameweek standings" : boardFocus === "country" ? `${country || "Country"} standings` : "Overall standings";
+    const focusRows = boardFocus === "week" ? week.rankings : boardFocus === "country" ? local.rankings : overall.rankings;
+    const focusField = boardFocus === "week" ? "weekPoints" : "points";
     shell(`
-      <p class="group-title">Overall${me ? ` · you are ${me.rank}` : ""}${country ? ` · ${esc(country)} is the country table` : ""}</p>
-      <div class="group">${list(overall.rankings, "points")}</div>
+      <h3 class="standings-title">${esc(focusTitle)}${me && boardFocus === "overall" ? ` · you are ${me.rank}` : ""}</h3>
+      <div class="standings">${boardFocus === "country" && !country ? `<div class="empty">Set a country in Settings for a country table.</div>` : standings(focusRows, focusField)}</div>
+      <p class="group-title">Overall</p>
+      <div class="standings">${standings(overall.rankings, "points")}</div>
       <p class="group-title">This gameweek</p>
-      <div class="group">${list(week.rankings, "weekPoints")}</div>
-      <p class="group-title">${country ? `${esc(country)} and region ${esc(state.region || "—")}` : "Set a country in Settings for a country table"}</p>
-      <div class="group">${country ? list(local.rankings, "points") : `<div class="empty">Country rank uses the country on your fantasy settings.</div>`}</div>
+      <div class="standings">${standings(week.rankings, "weekPoints")}</div>
+      <p class="group-title">${country ? esc(country) : "Country"}</p>
+      <div class="standings">${country ? standings(local.rankings, "points") : `<div class="empty">Country rank uses the country on your fantasy settings.</div>`}</div>
       <p class="group-title">Rank history</p>
       <div class="group">${(state.rankHistory || []).map((row) => `<div class="setting-row"><strong>${esc(row.week)}</strong><span class="bar" title="Rank ${row.rank}"><i style="width:${Math.max(8, 100 - row.rank)}%"></i></span></div>`).join("")}</div>
       <div class="group">

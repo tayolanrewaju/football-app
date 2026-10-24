@@ -1018,10 +1018,14 @@ html[data-theme="light"] body {
 
 .fantasy-page.is-home { padding-bottom: 18px; }
 
+#favourites-list:has(.fpl-card) {
+  padding: 0 0 16px;
+}
+
 .fpl-card {
-  margin: 10px 12px 16px;
-  padding: 18px 16px 16px;
-  border-radius: 28px;
+  margin: 0 0 12px;
+  padding: 16px 16px 14px;
+  border-radius: 0;
   color: #f7f4ee;
   background:
     radial-gradient(90% 70% at 100% 0%, rgba(212, 175, 55, 0.42), transparent 48%),
@@ -2557,4 +2561,97 @@ html[data-theme="light"] body {
   border: 1.5px solid #d5d0e0;
   background: #fff;
   color: #3b1460;
+}
+
+.shirt-plus {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.shirt-card.is-add { cursor: pointer; }
+.shirt-card.is-add .shirt-photo {
+  border: 1.5px dashed rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.standings-title {
+  margin: 8px 16px 8px;
+  font-size: 22px;
+  letter-spacing: -0.04em;
+  color: #2b1248;
+}
+
+.standings {
+  margin: 0 12px 14px;
+  background: #fff;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.standing {
+  display: grid;
+  grid-template-columns: 28px 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(43, 18, 72, 0.08);
+}
+
+.standing:last-child { border-bottom: 0; }
+.standing b { font-size: 16px; color: #3b1460; }
+.standing span { display: grid; min-width: 0; }
+.standing strong { font-size: 14px; }
+.standing small { color: #8b8498; font-weight: 700; }
+.standing.is-me { background: #f3eefe; }
+
+.is-points .gw-head,
+.is-pick .gw-head,
+.is-transfer .gw-head { padding: 0 10px; }
+
+.is-points .gw-titles h2,
+.is-pick .gw-titles h2,
+.is-transfer .gw-titles h2 { font-size: 16px; }
+
+.is-points .gw-scores { padding: 0 8px; }
+.is-points .gw-scores strong { font-size: 18px; }
+.is-points .gw-total { padding: 2px 12px 2px; }
+.is-points .gw-total strong { font-size: 26px; }
+
+.is-pick .pick-deadline,
+.is-transfer .pick-deadline {
+  margin: 0 10px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.is-pick .pick-chips,
+.is-transfer .xfer-stats { padding-top: 2px; padding-bottom: 0; }
+
+.is-pick .pick-chip,
+.is-transfer .xfer-chip { padding: 1px 1px 2px; }
+
+.is-pick .pick-chip svg,
+.is-transfer .xfer-chip svg { width: 20px; height: 20px; }
+
+.is-pick .pick-chip strong,
+.is-transfer .xfer-chip strong { min-height: 18px; font-size: 9px; }
+
+.is-points .gw-tools,
+.is-pick .gw-tools,
+.is-transfer .gw-tools { padding: 2px 10px 0; }
+
+.is-points .gw-switch button,
+.is-pick .gw-switch button,
+.is-transfer .gw-switch button,
+.is-points .gw-menu > button,
+.is-pick .gw-menu > button,
+.is-transfer .gw-menu > button {
+  padding: 4px 10px;
+  font-size: 12px;
 }

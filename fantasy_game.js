@@ -26,6 +26,7 @@
       transfersThisWeek: 0,
       weekKey: "",
       chipThisWeek: null,
+      chipQueued: null,
       chips: { wildcard1: null, wildcard2: null, freehit: null, bench: null, triple: null },
       freeHitBackup: null,
       history: [],
@@ -119,6 +120,13 @@
     const deadline = CORE.deadlineMs(matches, now, offsetMin);
     if (deadline == null) return false;
     return now.getTime() > deadline;
+  }
+
+  function openDeadline(matches, now = new Date(), offsetMin = offset()) {
+    const current = CORE.deadlineMs(matches, now, offsetMin);
+    if (current == null || current > now.getTime()) return { deadline: current, when: now, queued: false };
+    const next = new Date(Date.parse(`${CORE.weekKey(now)}T12:00:00Z`) + 7 * 86400000);
+    return { deadline: CORE.deadlineMs(matches, next, offsetMin), when: next, queued: true };
   }
 
   function issues(state) {
@@ -249,7 +257,7 @@
 
   function chipAvailable(state, id, now = new Date()) {
     if (state.chips[id]) return false;
-    if (state.chipThisWeek) return false;
+    if (state.chipThisWeek || state.chipQueued) return false;
     const week = weekNumber(now);
     if (id === "wildcard1" && week > 19) return false;
     if (id === "wildcard2" && week <= 19) return false;
@@ -257,11 +265,14 @@
   }
 
   function playChip(state, id, matches, now = new Date()) {
-    if (!chipAvailable(state, id, now)) return "That chip is not available.";
-    if (locked(matches, now)) return "Chips must be played before the deadline.";
-    if (id === "freehit") state.freeHitBackup = JSON.parse(JSON.stringify(state.squad));
-    state.chipThisWeek = id;
-    state.chips[id] = state.weekKey || CORE.weekKey(now);
+    const open = openDeadline(matches, now);
+    const target = open.when || now;
+    if (!chipAvailable(state, id, target)) return "That chip is not available.";
+    if (open.deadline != null && now.getTime() > open.deadline) return "Chips must be played before the deadline.";
+    if (id === "freehit" && !open.queued) state.freeHitBackup = JSON.parse(JSON.stringify(state.squad));
+    if (open.queued) state.chipQueued = id;
+    else state.chipThisWeek = id;
+    state.chips[id] = CORE.weekKey(target);
     unlock(state);
     return "";
   }
@@ -273,11 +284,12 @@
       return state;
     }
     if (state.weekKey === key) return state;
+    const played = state.chipThisWeek;
     const points = Math.max(0, (weekPoints || 0) - hit(state));
     state.history.unshift({
       week: state.weekKey,
       points,
-      chip: state.chipThisWeek,
+      chip: played,
       captain: state.squad.find((player) => player.captain)?.name || "",
       transfers: state.transfersThisWeek,
       squad: state.squad.map((player) => ({
@@ -289,14 +301,16 @@
         vice: !!player.vice,
       })),
     });
-    if (state.chipThisWeek === "freehit" && state.freeHitBackup) {
+    if (played === "freehit" && state.freeHitBackup) {
       state.squad = state.freeHitBackup;
       state.freeHitBackup = null;
     }
     const leftover = Math.max(0, state.freeTransfers - state.transfersThisWeek);
-    state.freeTransfers = ["wildcard1", "wildcard2"].includes(state.chipThisWeek) ? 1 : Math.min(2, 1 + leftover);
+    state.freeTransfers = ["wildcard1", "wildcard2"].includes(played) ? 1 : Math.min(2, 1 + leftover);
     state.transfersThisWeek = 0;
-    state.chipThisWeek = null;
+    state.chipThisWeek = state.chipQueued || null;
+    state.chipQueued = null;
+    if (state.chipThisWeek === "freehit") state.freeHitBackup = JSON.parse(JSON.stringify(state.squad));
     state.weekKey = key;
     unlock(state);
     return state;
@@ -515,6 +529,28 @@
     if (city.fixtures.length) throw new Error("man city should not match man utd");
     state.chipThisWeek = "wildcard1";
     if (hit(state) !== 0) throw new Error("wildcard hit");
+    const live = new Date("2026-10-24T18:00:00Z");
+    const fixtures = [
+      { home: "Arsenal", away: "Chelsea", start: "2026-10-24T11:00:00Z" },
+      { home: "Liverpool", away: "Everton", start: "2026-10-31T14:00:00Z" },
+    ];
+    const queued = blank();
+    queued.teamName = "Chips";
+    const chipError = playChip(queued, "bench", fixtures, live);
+    if (chipError) throw new Error(chipError);
+    if (queued.chipQueued !== "bench" || queued.chipThisWeek) throw new Error("chip should wait for the next deadline");
+    const ahead = playChip(blank(), "triple", [{ home: "Arsenal", away: "Chelsea", start: "2026-10-31T14:00:00Z" }], live);
+    if (ahead) throw new Error(ahead);
+    const closed = playChip(
+      blank(),
+      "bench",
+      [
+        { home: "Arsenal", away: "Chelsea", start: "2026-10-24T14:00:00Z" },
+        { home: "Liverpool", away: "Everton", start: "2026-10-26T00:30:00Z" },
+      ],
+      new Date("2026-10-25T23:30:00Z")
+    );
+    if (!closed) throw new Error("a passed deadline should block the chip");
     console.log("fantasy game self-test ok");
   }
 })(typeof window !== "undefined" ? window : globalThis);
