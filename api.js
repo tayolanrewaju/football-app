@@ -184,9 +184,15 @@
   function positionLine(pos) {
     const p = String(pos || "").toUpperCase();
     if (p === "G" || p === "GK" || p.includes("GOAL")) return "gk";
-    if (["D", "DF", "CB", "LB", "RB", "LWB", "RWB", "DEF"].includes(p) || p.includes("BACK") || p.includes("DEF"))
+    if (p === "DM" || p.startsWith("DM") || p.includes("CDM")) return "mid";
+    if (
+      ["D", "DF", "CB", "LB", "RB", "LWB", "RWB", "DEF", "LCB", "RCB"].includes(p) ||
+      p.startsWith("CD") ||
+      p.includes("BACK") ||
+      p.includes("DEF")
+    )
       return "def";
-    if (["M", "MF", "CM", "DM", "AM", "CDM", "CAM", "LM", "RM", "MID"].includes(p) || p.includes("MID"))
+    if (/^(CM|LM|RM|AM|DM|CAM|CDM|MF|MID)\b/.test(p) || ["M", "MF", "CM", "DM", "AM", "CDM", "CAM", "LM", "RM", "MID"].includes(p) || p.includes("MID"))
       return "mid";
     return "fwd";
   }
@@ -225,6 +231,61 @@
       ],
       xi: [...fwd, ...mid, ...def, ...gk],
     };
+  }
+
+  function sideRank(position) {
+    const p = String(position || "").toUpperCase();
+    const wideLeft = ["LB", "LWB", "LM", "LW", "LF"].includes(p);
+    const wideRight = ["RB", "RWB", "RM", "RW", "RF"].includes(p);
+    if (p.includes("-L") || wideLeft) return wideLeft ? 0 : 1;
+    if (p.includes("-R") || wideRight) return wideRight ? 4 : 3;
+    return 2;
+  }
+
+  function depthRank(position) {
+    const p = String(position || "").toUpperCase();
+    if (positionLine(p) === "gk") return -1;
+    if (/^(DM|CDM)/.test(p)) return 1;
+    if (/^(AM|CAM|SS)/.test(p)) return 3;
+    if (positionLine(p) === "def") return 0;
+    if (/^(LW|RW|LF|RF)/.test(p)) return 4;
+    if (/^(CM|LM|RM)/.test(p) || positionLine(p) === "mid") return 2;
+    return 5;
+  }
+
+  function pitchFromLineup(lineup) {
+    const starters = (lineup?.players || []).filter((player) => player.starter);
+    if (!starters.length) return null;
+    const shape = String(lineup.formation || "").trim();
+    const parts = shape.split("-").map((part) => Number(part)).filter((count) => count > 0);
+    const gk = starters.filter((player) => depthRank(player.position) < 0);
+    const outfield = starters.filter((player) => depthRank(player.position) >= 0);
+    outfield.sort((a, b) => depthRank(a.position) - depthRank(b.position) || sideRank(a.position) - sideRank(b.position) || String(a.name).localeCompare(String(b.name)));
+    const expected = parts.reduce((sum, count) => sum + count, 0);
+    const rows = [];
+    if (parts.length && expected === outfield.length) {
+      let cursor = 0;
+      parts.forEach((count) => {
+        rows.push(outfield.slice(cursor, cursor + count));
+        cursor += count;
+      });
+    } else {
+      const bands = new Map();
+      outfield.forEach((player) => {
+        const depth = depthRank(player.position);
+        if (!bands.has(depth)) bands.set(depth, []);
+        bands.get(depth).push(player);
+      });
+      [...bands.keys()].sort((a, b) => a - b).forEach((depth) => rows.push(bands.get(depth)));
+    }
+    rows.forEach((row) => row.sort((a, b) => sideRank(a.position) - sideRank(b.position) || String(a.name).localeCompare(String(b.name))));
+    const attackFirst = [...rows].reverse();
+    const lines = attackFirst.map((players, index) => ({
+      key: index === 0 ? "fwd" : index === attackFirst.length - 1 ? "def" : "mid",
+      players,
+    }));
+    if (gk.length) lines.push({ key: "gk", players: gk.slice(0, 1) });
+    return { shape: shape || "XI", lines };
   }
 
   function mapEvent(event, leagueId) {
@@ -648,7 +709,7 @@
   }
 
   async function loadMatchDetail(leagueId, eventId) {
-    const league = LEAGUES.find((l) => l.id === leagueId);
+    const league = LEAGUES.find((l) => l.id === leagueId) || COMPETITIONS.find((item) => item.id === leagueId);
     const slug = league?.slug || "eng.1";
     const data = await fetchJson(
       proxyUrl("site", `apis/site/v2/sports/soccer/${slug}/summary?event=${encodeURIComponent(eventId)}`)
@@ -682,6 +743,7 @@
           position: p.position?.abbreviation || "",
           positionName: p.position?.displayName || "",
           starter: !!p.starter,
+          formationPlace: Number(p.formationPlace) || 0,
           headshot: p.athlete?.headshot?.href || "",
         })),
       };
@@ -968,9 +1030,176 @@
     return fetchJson(`/api/fantasy/quote?${params.toString()}`);
   }
 
+  const COMPETITIONS = [
+    { id: "ucl", region: "Europe", country: "Europe", name: "Champions League", slug: "uefa.champions", kind: "cup", rank: 0 },
+    { id: "uel", region: "Europe", country: "Europe", name: "Europa League", slug: "uefa.europa", kind: "cup", rank: 0 },
+    { id: "uecl", region: "Europe", country: "Europe", name: "Conference League", slug: "uefa.europa.conf", kind: "cup", rank: 0 },
+    { id: "usc", region: "Europe", country: "Europe", name: "Super Cup", slug: "uefa.super_cup", kind: "cup", rank: 0 },
+    { id: "euro", region: "Europe", country: "Europe", name: "European Championship", slug: "uefa.euro", kind: "cup", rank: 0 },
+    { id: "unl", region: "Europe", country: "Europe", name: "Nations League", slug: "uefa.nations", kind: "cup", rank: 0 },
+    { id: "pl", region: "England", country: "England", name: "Premier League", slug: "eng.1", kind: "league", rank: 4 },
+    { id: "efl", region: "England", country: "England", name: "Championship", slug: "eng.2", kind: "league", rank: 4 },
+    { id: "fac", region: "England", country: "England", name: "FA Cup", slug: "eng.fa", kind: "cup", rank: 4 },
+    { id: "carabao", region: "England", country: "England", name: "Carabao Cup", slug: "eng.league_cup", kind: "cup", rank: 4 },
+    { id: "shield", region: "England", country: "England", name: "Community Shield", slug: "eng.charity", kind: "cup", rank: 4 },
+    { id: "arg", region: "Argentina", country: "Argentina", name: "Liga Profesional", slug: "arg.1", kind: "league", rank: 1 },
+    { id: "fra", region: "France", country: "France", name: "Ligue 1", slug: "fra.1", kind: "league", rank: 2 },
+    { id: "esp", region: "Spain", country: "Spain", name: "La Liga", slug: "esp.1", kind: "league", rank: 3 },
+    { id: "bra", region: "Brazil", country: "Brazil", name: "Brasileirão", slug: "bra.1", kind: "league", rank: 5 },
+    { id: "por", region: "Portugal", country: "Portugal", name: "Primeira Liga", slug: "por.1", kind: "league", rank: 6 },
+    { id: "ned", region: "Netherlands", country: "Netherlands", name: "Eredivisie", slug: "ned.1", kind: "league", rank: 7 },
+    { id: "bel", region: "Belgium", country: "Belgium", name: "Pro League", slug: "bel.1", kind: "league", rank: 8 },
+    { id: "ita", region: "Italy", country: "Italy", name: "Serie A", slug: "ita.1", kind: "league", rank: 9 },
+    { id: "ger", region: "Germany", country: "Germany", name: "Bundesliga", slug: "ger.1", kind: "league", rank: 10 },
+    { id: "uru", region: "Uruguay", country: "Uruguay", name: "Primera División", slug: "uru.1", kind: "league", rank: 14 },
+    { id: "usa", region: "United States", country: "United States", name: "MLS", slug: "usa.1", kind: "league", rank: 15 },
+    { id: "mex", region: "Mexico", country: "Mexico", name: "Liga MX", slug: "mex.1", kind: "league", rank: 16 },
+    { id: "jpn", region: "Japan", country: "Japan", name: "J1 League", slug: "jpn.1", kind: "league", rank: 17 },
+    { id: "sui", region: "Switzerland", country: "Switzerland", name: "Super League", slug: "sui.1", kind: "league", rank: 18 },
+    { id: "den", region: "Denmark", country: "Denmark", name: "Superliga", slug: "den.1", kind: "league", rank: 21 },
+    { id: "aut", region: "Austria", country: "Austria", name: "Bundesliga", slug: "aut.1", kind: "league", rank: 22 },
+    { id: "aus", region: "Australia", country: "Australia", name: "A-League", slug: "aus.1", kind: "league", rank: 24 },
+    { id: "ecu", region: "Ecuador", country: "Ecuador", name: "LigaPro", slug: "ecu.1", kind: "league", rank: 25 },
+    { id: "tur", region: "Turkey", country: "Turkey", name: "Süper Lig", slug: "tur.1", kind: "league", rank: 27 },
+    { id: "nor", region: "Norway", country: "Norway", name: "Eliteserien", slug: "nor.1", kind: "league", rank: 30 },
+    { id: "sco", region: "Scotland", country: "Scotland", name: "Premiership", slug: "sco.1", kind: "league", rank: 34 },
+    { id: "gre", region: "Greece", country: "Greece", name: "Super League", slug: "gre.1", kind: "league", rank: 38 },
+    { id: "swe", region: "Sweden", country: "Sweden", name: "Allsvenskan", slug: "swe.1", kind: "league", rank: 39 },
+    { id: "wal", region: "Wales", country: "Wales", name: "Cymru Premier", slug: "wal.1", kind: "league", rank: 41 },
+    { id: "rou", region: "Romania", country: "Romania", name: "Liga 1", slug: "rou.1", kind: "league", rank: 42 },
+    { id: "cze", region: "Czechia", country: "Czechia", name: "Czech First League", slug: "cze.1", kind: "league", rank: 37 },
+    { id: "irl", region: "Ireland", country: "Ireland", name: "Premier Division", slug: "irl.1", kind: "league", rank: 52 },
+    { id: "fin", region: "Finland", country: "Finland", name: "Veikkausliiga", slug: "fin.1", kind: "league", rank: 60 },
+    { id: "nir", region: "Northern Ireland", country: "Northern Ireland", name: "Premiership", slug: "nir.1", kind: "league", rank: 62 },
+    { id: "col", region: "Colombia", country: "Colombia", name: "Primera A", slug: "col.1", kind: "league", rank: 13 },
+    { id: "chi", region: "Chile", country: "Chile", name: "Primera División", slug: "chi.1", kind: "league", rank: 45 },
+    { id: "per", region: "Peru", country: "Peru", name: "Liga 1", slug: "per.1", kind: "league", rank: 46 },
+    { id: "par", region: "Paraguay", country: "Paraguay", name: "Primera División", slug: "par.1", kind: "league", rank: 44 },
+    { id: "crc", region: "Costa Rica", country: "Costa Rica", name: "Primera División", slug: "crc.1", kind: "league", rank: 51 },
+    { id: "bol", region: "Bolivia", country: "Bolivia", name: "División Profesional", slug: "bol.1", kind: "league", rank: 55 },
+    { id: "ven", region: "Venezuela", country: "Venezuela", name: "Primera División", slug: "ven.1", kind: "league", rank: 56 },
+    { id: "hon", region: "Honduras", country: "Honduras", name: "Liga Nacional", slug: "hon.1", kind: "league", rank: 70 },
+    { id: "gua", region: "Guatemala", country: "Guatemala", name: "Liga Nacional", slug: "gua.1", kind: "league", rank: 80 },
+    { id: "slv", region: "El Salvador", country: "El Salvador", name: "Primera División", slug: "slv.1", kind: "league", rank: 82 },
+    { id: "ksa", region: "Saudi Arabia", country: "Saudi Arabia", name: "Pro League", slug: "ksa.1", kind: "league", rank: 56 },
+    { id: "chn", region: "China", country: "China", name: "Super League", slug: "chn.1", kind: "league", rank: 75 },
+    { id: "ind", region: "India", country: "India", name: "Super League", slug: "ind.1", kind: "league", rank: 100 },
+    { id: "isr", region: "Israel", country: "Israel", name: "Premier League", slug: "isr.1", kind: "league", rank: 72 },
+    { id: "cyp", region: "Cyprus", country: "Cyprus", name: "First Division", slug: "cyp.1", kind: "league", rank: 68 },
+    { id: "nga", region: "Nigeria", country: "Nigeria", name: "NPFL", slug: "nga.1", kind: "league", rank: 29 },
+    { id: "gha", region: "Ghana", country: "Ghana", name: "Premier League", slug: "gha.1", kind: "league", rank: 70 },
+    { id: "rsa", region: "South Africa", country: "South Africa", name: "Premiership", slug: "rsa.1", kind: "league", rank: 57 },
+    { id: "ken", region: "Kenya", country: "Kenya", name: "Premier League", slug: "ken.1", kind: "league", rank: 100 },
+    { id: "tha", region: "Thailand", country: "Thailand", name: "Thai League", slug: "tha.1", kind: "league", rank: 100 },
+    { id: "idn", region: "Indonesia", country: "Indonesia", name: "Super League", slug: "idn.1", kind: "league", rank: 120 },
+    { id: "mys", region: "Malaysia", country: "Malaysia", name: "Super League", slug: "mys.1", kind: "league", rank: 130 },
+    { id: "sgp", region: "Singapore", country: "Singapore", name: "Premier League", slug: "sgp.1", kind: "league", rank: 140 },
+    { id: "lib", region: "South America", country: "South America", name: "Copa Libertadores", slug: "conmebol.libertadores", kind: "cup", rank: 200 },
+    { id: "sud", region: "South America", country: "South America", name: "Copa Sudamericana", slug: "conmebol.sudamericana", kind: "cup", rank: 200 },
+    { id: "copa", region: "South America", country: "South America", name: "Copa América", slug: "conmebol.america", kind: "cup", rank: 200 },
+    { id: "caf", region: "Africa", country: "Africa", name: "CAF Champions League", slug: "caf.champions", kind: "cup", rank: 200 },
+    { id: "afc", region: "Asia", country: "Asia", name: "AFC Champions League", slug: "afc.champions", kind: "cup", rank: 200 },
+    { id: "wc", region: "World", country: "World", name: "World Cup", slug: "fifa.world", kind: "cup", rank: 200 },
+  ];
+
+  cache.competitions = {};
+  cache.teamComps = {};
+
+  function competitionById(id) {
+    return COMPETITIONS.find((item) => item.id === id || item.slug === id) || null;
+  }
+
+  function standingRow(entry, slug) {
+    const stats = entry.stats || [];
+    const read = (name) => stats.find((stat) => stat.name === name)?.displayValue || "";
+    const team = entry.team || {};
+    return {
+      rank: Number(read("rank")) || 0,
+      id: String(team.id || ""),
+      espnId: String(team.id || ""),
+      name: team.displayName || team.name || "Club",
+      short: team.abbreviation || "",
+      logo: teamLogo(team),
+      color: team.color ? `#${String(team.color).replace("#", "")}` : "#888",
+      played: read("gamesPlayed"),
+      gd: read("pointDifferential"),
+      points: read("points"),
+      note: entry.note?.description || "",
+      slug,
+    };
+  }
+
+  async function loadCompetition(id) {
+    const comp = competitionById(id);
+    if (!comp) throw new Error("Unknown competition");
+    if (cache.competitions[comp.slug]) return cache.competitions[comp.slug];
+    const [table, board] = await Promise.all([
+      fetchJson(proxyUrl("site", `apis/v2/sports/soccer/${comp.slug}/standings`)).catch(() => null),
+      fetchJson(proxyUrl("site", `apis/site/v2/sports/soccer/${comp.slug}/scoreboard`)).catch(() => null),
+    ]);
+    const tables = [];
+    for (const child of table?.children || []) {
+      const entries = child.standings?.entries || [];
+      if (!entries.length) continue;
+      const rows = entries.map((entry) => standingRow(entry, comp.slug)).sort((a, b) => a.rank - b.rank);
+      const knockout = /round|knock|final|quarter|semi|play-?off|playoff/i.test(child.name || "");
+      tables.push({ name: child.name || comp.name, rows, knockout });
+    }
+    const fixtures = [];
+    for (const event of board?.events || []) {
+      const mapped = mapEvent(event, comp.id);
+      const note = event.competitions?.[0]?.notes?.[0]?.headline || event.season?.type?.name || event.seasonType?.name || "";
+      fixtures.push({ ...mapped, note, leagueName: event.league?.name || comp.name });
+    }
+    const result = { ...comp, tables, fixtures };
+    cache.competitions[comp.slug] = result;
+    return result;
+  }
+
+  async function loadTeamCompetitions(team) {
+    const teamId = String(team?.espnId || team?.id || "");
+    const slug = team?.slug || "eng.1";
+    if (!teamId) return [];
+    const cacheKey = `${slug}:${teamId}`;
+    if (cache.teamComps[cacheKey]) return cache.teamComps[cacheKey];
+    const prefix = slug.split(".")[0];
+    const domestic = {
+      eng: ["eng.1", "eng.2", "eng.fa", "eng.league_cup", "eng.charity"],
+      esp: ["esp.1", "esp.copa_del_rey"],
+      ita: ["ita.1", "ita.coppa_italia"],
+      ger: ["ger.1", "ger.dfb_pokal"],
+      fra: ["fra.1", "fra.coupe_de_france"],
+    };
+    const slugs = [...new Set([slug, ...(domestic[prefix] || []), "uefa.champions", "uefa.europa", "uefa.europa.conf"])];
+    const found = [];
+    await Promise.all(
+      slugs.map(async (item) => {
+        try {
+          const data = await fetchJson(proxyUrl("site", `apis/site/v2/sports/soccer/${item}/teams/${teamId}/schedule`));
+          const events = data.events || [];
+          if (!events.length) return;
+          const league = events.find((event) => event.league?.name)?.league || {};
+          const known = COMPETITIONS.find((comp) => comp.slug === item);
+          found.push({
+            id: known?.id || item,
+            slug: item,
+            name: league.name || known?.name || item,
+            kind: league.isTournament || known?.kind === "cup" ? "cup" : "league",
+          });
+        } catch {
+          /* This club is not in that competition. */
+        }
+      })
+    );
+    found.sort((a, b) => Number(b.kind === "league") - Number(a.kind === "league") || a.name.localeCompare(b.name));
+    cache.teamComps[cacheKey] = found;
+    return found;
+  }
+
   window.NINETY_API = {
     LEAGUES,
     LEAGUE_LOGOS,
+    COMPETITIONS,
     loadAll,
     loadMatchesQuick,
     loadTeamDetail,
@@ -979,9 +1208,12 @@
     loadPlayerStats,
     loadMatchDetail,
     loadMatchSheets,
+    loadCompetition,
+    loadTeamCompetitions,
     quoteFantasy,
     loadTransferNews,
     buildFormation,
+    pitchFromLineup,
     searchTeams,
     searchPlayers,
     logoFrom,

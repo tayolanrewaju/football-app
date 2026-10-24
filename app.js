@@ -25,6 +25,8 @@ let teamsLeagueId = null;
 let selectedTeam = null;
 let selectedPlayer = null;
 let selectedMatch = null;
+let selectedTransfer = null;
+let teamsRegion = "Europe";
 let favMode = localStorage.getItem("ninety-fav-mode") || "following";
 let fantasySquad = loadJson("ninety-fantasy-v1", []);
 try {
@@ -43,6 +45,10 @@ let fantasyPoints = null;
 let fantasyPointsKey = "";
 let fantasyLoading = false;
 let accountMode = "signin";
+let signupStep = 0;
+let signupDraft = { country: "", club: null, players: [], name: "", email: "", password: "", code: "" };
+let signupClubHits = [];
+let signupPlayerHits = [];
 let live = {
   leagues: API.LEAGUES.map((l) => ({ ...l, logo: null })),
   teams: [],
@@ -125,9 +131,18 @@ function persist() {
 
 function syncFromAccount() {
   const user = AUTH.currentUser();
-  if (user && Array.isArray(user.favorites)) {
+  if (!user) return;
+  if (Array.isArray(user.favorites)) {
     favorites = [...user.favorites];
     saveJson(KEYS.favorites, favorites);
+  }
+  const remote = user.fantasy;
+  if (remote && Array.isArray(remote.squad) && window.NINETY_FANTASY_GAME) {
+    const local = NINETY_FANTASY_GAME.load();
+    const remoteNewer = Number(remote.savedAt || 0) >= Number(local.savedAt || 0);
+    if (remote.squad.length && (remoteNewer || !local.squad.length)) {
+      localStorage.setItem("ninety-fantasy-v2", JSON.stringify({ ...local, ...remote }));
+    }
   }
 }
 
@@ -235,15 +250,18 @@ function showView(name) {
 function updateNav() {
   const deepTeams = currentView === "teams" && (teamsLeagueId || selectedTeam || selectedPlayer);
   const deepMatch = currentView === "matches" && selectedMatch;
+  const deepTransfer = currentView === "transfers" && selectedTransfer;
   const fantasyDeep = currentView === "favourites" && favMode === "fantasy" && window.NINETY_FANTASY_UI && NINETY_FANTASY_UI.screen() !== "home";
   const deepFantasy = fantasyDeep || (currentView === "favourites" && favMode === "fantasy" && fantasyPlayerId);
-  els.navBack.hidden = !(deepTeams || deepMatch || deepFantasy);
+  els.navBack.hidden = !(deepTeams || deepMatch || deepFantasy || deepTransfer);
   if (fantasyDeep) {
     els.navTitle.textContent = NINETY_FANTASY_UI.title();
   } else if (currentView === "favourites" && favMode === "fantasy" && fantasyPlayerId) {
     els.navTitle.textContent = fantasySquad.find((player) => player.id === fantasyPlayerId)?.name || "Player";
   } else if (currentView === "favourites" && favMode === "fantasy") {
     els.navTitle.textContent = "Fantasy";
+  } else if (deepTransfer) {
+    els.navTitle.textContent = selectedTransfer.player || "Transfer";
   } else if (deepMatch) {
     els.navTitle.textContent = "Match";
   } else if (currentView === "teams" && selectedPlayer) {
@@ -251,7 +269,7 @@ function updateNav() {
   } else if (currentView === "teams" && selectedTeam) {
     els.navTitle.textContent = selectedTeam.name;
   } else if (currentView === "teams" && teamsLeagueId) {
-    els.navTitle.textContent = live.leagues.find((l) => l.id === teamsLeagueId)?.name || "Teams";
+    els.navTitle.textContent = API.COMPETITIONS?.find((item) => item.id === teamsLeagueId)?.name || live.leagues.find((l) => l.id === teamsLeagueId)?.name || "Teams";
   } else {
     els.navTitle.textContent = TITLES[currentView] || "Derby";
   }
@@ -604,17 +622,27 @@ async function renderMatchDetail(match) {
         .join("");
       blocks.push(title, card);
     }
-    for (const [key, label] of [
-      ["home", home.name || match.home],
-      ["away", away.name || match.away],
+    for (const [key, label, side] of [
+      ["home", home.name || match.home, home],
+      ["away", away.name || match.away, away],
     ]) {
       const lineup = detail.lineups?.[key];
       if (!lineup?.players?.length) continue;
       const starters = lineup.players.filter((p) => p.starter);
       const bench = lineup.players.filter((p) => !p.starter);
+      const pitch = API.pitchFromLineup?.(lineup);
+      if (pitch?.lines?.length) {
+        const pitchTitle = document.createElement("p");
+        pitchTitle.className = "group-title";
+        pitchTitle.textContent = `${label}${lineup.formation ? ` · ${lineup.formation}` : ""}`;
+        const pitchCard = document.createElement("div");
+        pitchCard.className = "group pitch-wrap";
+        pitchCard.innerHTML = formationMarkup(pitch, side.color || "#30d158");
+        blocks.push(pitchTitle, pitchCard);
+      }
       const title = document.createElement("p");
       title.className = "group-title";
-      title.textContent = `${label}${lineup.formation ? ` · ${lineup.formation}` : ""}`;
+      title.textContent = pitch?.lines?.length ? `${label} · players` : `${label}${lineup.formation ? ` · ${lineup.formation}` : ""}`;
       const card = document.createElement("div");
       card.className = "group";
       const list = document.createElement("div");
@@ -707,6 +735,11 @@ function transferStatusClass(status) {
 }
 
 function renderTransfers() {
+  updateNav();
+  if (selectedTransfer) {
+    renderTransferDetail(selectedTransfer);
+    return;
+  }
   const done = TRANSFERS.filter((t) => t.status === "Completed");
   const hot = TRANSFERS.filter((t) => t.status !== "Completed");
   const frag = document.createDocumentFragment();
@@ -737,6 +770,12 @@ function renderTransfers() {
         </div>
         <span class="pill ${transferStatusClass(t.status)}">${escapeHtml(t.status)}</span>
       `;
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.addEventListener("click", () => {
+        selectedTransfer = t;
+        renderTransfers();
+      });
       group.appendChild(row);
     });
     frag.append(title, group);
@@ -754,6 +793,86 @@ function renderTransfers() {
   frag.append(overviewTitle, overview);
   els.transfersList.replaceChildren(frag);
   loadTransferOverview(overview);
+}
+
+async function renderTransferDetail(transfer) {
+  els.transfersList.innerHTML = `<div class="loading">Loading ${escapeHtml(transfer.player)}…</div>`;
+  updateNav();
+  const same = () => selectedTransfer?.id === transfer.id;
+  let player = null;
+  let articles = [];
+  try {
+    const [hits, news] = await Promise.all([
+      API.searchPlayers(transfer.player).catch(() => []),
+      API.loadTransferNews().catch(() => []),
+    ]);
+    if (!same()) return;
+    const wanted = transfer.player.toLowerCase();
+    player = hits.find((hit) => hit.name.toLowerCase() === wanted) || hits[0] || null;
+    const needles = [transfer.player, transfer.from, transfer.to].map((item) => item.toLowerCase());
+    articles = news.filter((article) => {
+      const blob = `${article.headline} ${article.description}`.toLowerCase();
+      return needles.some((needle) => needle && blob.includes(needle));
+    });
+  } catch {
+    if (!same()) return;
+  }
+  const face = player?.headshot
+    ? `<span class="player-face player-hero-face"><img src="${escapeHtml(player.headshot)}" alt="" referrerpolicy="no-referrer" /></span>`
+    : "";
+  const hero = document.createElement("div");
+  hero.className = "group transfer-hero";
+  hero.innerHTML = `
+    ${face}
+    <p class="intel-title">${escapeHtml(transfer.player)}</p>
+    <p class="intel-note">${escapeHtml(player?.positionName || player?.position || "Player")}${player?.teamName ? ` · ${escapeHtml(player.teamName)}` : ""}</p>
+    <div class="transfer-route">
+      <div>${crest(transfer.from, "crest-lg")}<span>${escapeHtml(transfer.from)}</span></div>
+      <span class="transfer-arrow">→</span>
+      <div>${crest(transfer.to, "crest-lg")}<span>${escapeHtml(transfer.to)}</span></div>
+    </div>
+    <p class="intel-sub">${escapeHtml(transfer.fee)}</p>
+    <p class="intel-note">${escapeHtml(transfer.window)} · <span class="pill ${transferStatusClass(transfer.status)}">${escapeHtml(transfer.status)}</span></p>
+    <p class="intel-note">${escapeHtml(transfer.note)}</p>
+  `;
+  const blocks = [hero];
+  const facts = document.createElement("div");
+  facts.className = "group";
+  const rows = [
+    ["Player", transfer.player],
+    ["From", transfer.from],
+    ["To", transfer.to],
+    ["Fee", transfer.fee],
+    ["Window", transfer.window],
+    ["Status", transfer.status],
+  ];
+  if (player?.teamName) rows.push(["Current club", player.teamName]);
+  if (player?.positionName || player?.position) rows.push(["Position", player.positionName || player.position]);
+  facts.innerHTML = rows
+    .map(([label, value]) => `<div class="setting-row"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></div>`)
+    .join("");
+  const factsTitle = document.createElement("p");
+  factsTitle.className = "group-title";
+  factsTitle.textContent = "Deal";
+  blocks.push(factsTitle, facts);
+  const newsTitle = document.createElement("p");
+  newsTitle.className = "group-title";
+  newsTitle.textContent = "News";
+  const newsCard = document.createElement("div");
+  newsCard.className = "group";
+  if (!articles.length) {
+    newsCard.innerHTML = `<div class="empty">No fresh briefs mention ${escapeHtml(transfer.player)} or these clubs yet.</div>`;
+  } else {
+    articles.slice(0, 6).forEach((article) => {
+      const row = document.createElement("div");
+      row.className = "intel-row";
+      row.innerHTML = `<div><p class="intel-title">${escapeHtml(article.headline)}</p><p class="intel-note">${escapeHtml(article.description || "")}</p></div>`;
+      newsCard.appendChild(row);
+    });
+  }
+  blocks.push(newsTitle, newsCard);
+  if (!same()) return;
+  els.transfersList.replaceChildren(...blocks);
 }
 
 async function loadTransferOverview(host) {
@@ -849,45 +968,120 @@ function renderTeams() {
   }
 
   if (teamsLeagueId) {
-    const league = live.leagues.find((l) => l.id === teamsLeagueId);
-    const teams = live.teams.filter((t) => t.league === teamsLeagueId);
-    const title = document.createElement("p");
-    title.className = "group-title league-heading";
-    title.innerHTML = `${leagueLogo(league, "crest-xs")}<span>${escapeHtml(league?.name || "League")}</span>`;
-    const group = document.createElement("div");
-    group.className = "group";
-    teams.forEach((team) => group.appendChild(teamRowButton(team)));
-    frag.append(title, group);
-    els.teamsList.replaceChildren(frag);
+    renderCompetition(teamsLeagueId);
     return;
   }
 
+  const catalog = API.COMPETITIONS || [];
+  const regions = [];
+  catalog.forEach((item) => {
+    if (!regions.includes(item.region)) regions.push(item.region);
+  });
+  const picker = document.createElement("div");
+  picker.className = "group comp-picker";
+  const options = regions
+    .map((region) => `<option value="${escapeHtml(region)}" ${region === teamsRegion ? "selected" : ""}>${escapeHtml(region)}</option>`)
+    .join("");
+  picker.innerHTML = `<label>Competition<select id="team-region">${options}</select></label>`;
+  picker.querySelector("#team-region").addEventListener("change", (event) => {
+    teamsRegion = event.target.value;
+    renderTeams();
+  });
   const title = document.createElement("p");
   title.className = "group-title";
-  title.textContent = "Browse leagues";
+  title.textContent = teamsRegion;
   const group = document.createElement("div");
   group.className = "group";
-  live.leagues.forEach((league) => {
-    const count = live.teams.filter((t) => t.league === league.id).length;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "team-row";
-    btn.innerHTML = `
-      ${leagueLogo(league)}
-      <div>
-        <div class="team-name">${escapeHtml(league.name)}</div>
-        <div class="team-meta">${count} clubs · ${escapeHtml(league.country || "")}</div>
-      </div>
-      <span class="chev">›</span>
-    `;
-    btn.addEventListener("click", () => {
-      teamsLeagueId = league.id;
-      renderTeams();
+  catalog
+    .filter((item) => item.region === teamsRegion)
+    .forEach((item) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "team-row";
+      btn.innerHTML = `
+        <div>
+          <div class="team-name">${escapeHtml(item.name)}</div>
+          <div class="team-meta">${escapeHtml(item.kind === "cup" ? "Cup" : "League")} · ${escapeHtml(item.country)}</div>
+        </div>
+        <span class="chev">›</span>
+      `;
+      btn.addEventListener("click", () => {
+        teamsLeagueId = item.id;
+        renderTeams();
+      });
+      group.appendChild(btn);
     });
-    group.appendChild(btn);
-  });
-  frag.append(title, group);
+  frag.append(picker, title, group);
   els.teamsList.replaceChildren(frag);
+}
+
+async function renderCompetition(id) {
+  const comp = API.COMPETITIONS?.find((item) => item.id === id);
+  els.teamsList.innerHTML = `<div class="loading">Loading ${escapeHtml(comp?.name || "competition")}…</div>`;
+  updateNav();
+  try {
+    const data = await API.loadCompetition(id);
+    if (teamsLeagueId !== id || selectedTeam) return;
+    const frag = document.createDocumentFragment();
+    const head = document.createElement("p");
+    head.className = "group-title";
+    head.textContent = data.name;
+    frag.appendChild(head);
+    if (data.tables?.length) {
+      data.tables.forEach((table) => {
+        const title = document.createElement("p");
+        title.className = "group-title";
+        title.textContent = table.knockout ? `Knockout · ${table.name}` : table.name;
+        const group = document.createElement("div");
+        group.className = "group standings-lite";
+        table.rows.forEach((team) => {
+          const btn = teamRowButton({ ...team, league: id, slug: team.slug || data.slug }, `${team.played || "–"} played · GD ${team.gd || "–"} · ${team.points || "–"} pts`);
+          const name = btn.querySelector(".team-name");
+          if (name) name.insertAdjacentHTML("afterbegin", `<span class="rank-num">${escapeHtml(team.rank || "–")}</span> `);
+          group.appendChild(btn);
+        });
+        frag.append(title, group);
+      });
+    }
+    if (data.fixtures?.length) {
+      const rounds = new Map();
+      data.fixtures.forEach((fixture) => {
+        const key = fixture.note || (data.kind === "cup" ? "Knockout" : "Fixtures");
+        if (!rounds.has(key)) rounds.set(key, []);
+        rounds.get(key).push(fixture);
+      });
+      rounds.forEach((fixtures, round) => {
+        const title = document.createElement("p");
+        title.className = "group-title";
+        title.textContent = round;
+        const group = document.createElement("div");
+        group.className = "group";
+        fixtures.forEach((fixture) => {
+          const row = document.createElement("button");
+          row.type = "button";
+          row.className = "team-row";
+          const score = fixture.status === "Upcoming" ? fixture.kickoff || "Scheduled" : `${fixture.homeScore ?? "–"}–${fixture.awayScore ?? "–"}`;
+          row.innerHTML = `<div><div class="team-name">${escapeHtml(fixture.home)} v ${escapeHtml(fixture.away)}</div><div class="team-meta">${escapeHtml(score)} · ${escapeHtml(fixture.status || "")}</div></div><span class="chev">›</span>`;
+          row.addEventListener("click", () => {
+            selectedMatch = fixture;
+            showView("matches");
+          });
+          group.appendChild(row);
+        });
+        frag.append(title, group);
+      });
+    }
+    if (!data.tables?.length && !data.fixtures?.length) {
+      const empty = document.createElement("div");
+      empty.className = "group";
+      empty.innerHTML = `<div class="empty">No table or fixtures are published for this competition yet.</div>`;
+      frag.appendChild(empty);
+    }
+    els.teamsList.replaceChildren(frag);
+  } catch (err) {
+    if (teamsLeagueId !== id) return;
+    els.teamsList.innerHTML = `<div class="group"><div class="empty">Couldn’t load this competition.<br>${escapeHtml(err.message || err)}</div></div>`;
+  }
 }
 
 function playerSearchButton(hit) {
@@ -1072,6 +1266,40 @@ async function renderTeamDetail(team) {
       });
       blocks.push(ft, fg);
     }
+
+    const compTitle = document.createElement("p");
+    compTitle.className = "group-title";
+    compTitle.textContent = "Competitions";
+    const compCard = document.createElement("div");
+    compCard.className = "group";
+    compCard.innerHTML = `<div class="empty">Checking the cups and leagues…</div>`;
+    blocks.push(compTitle, compCard);
+    const teamToken = team;
+    API.loadTeamCompetitions(team).then((comps) => {
+      if (selectedTeam !== teamToken || selectedPlayer) return;
+      if (!comps.length) {
+        compCard.innerHTML = `<div class="empty">No extra competitions published for this club yet.</div>`;
+        return;
+      }
+      compCard.innerHTML = "";
+      comps.forEach((comp) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "team-row";
+        btn.innerHTML = `<div><div class="team-name">${escapeHtml(comp.name)}</div><div class="team-meta">${escapeHtml(comp.kind === "cup" ? "Cup" : "League")}</div></div><span class="chev">›</span>`;
+        btn.addEventListener("click", () => {
+          const known = API.COMPETITIONS?.find((item) => item.id === comp.id || item.slug === comp.slug);
+          teamsLeagueId = known?.id || comp.id;
+          if (known?.region) teamsRegion = known.region;
+          selectedTeam = null;
+          selectedPlayer = null;
+          renderTeams();
+        });
+        compCard.appendChild(btn);
+      });
+    }).catch(() => {
+      if (selectedTeam === teamToken) compCard.innerHTML = `<div class="empty">Competitions couldn’t be loaded.</div>`;
+    });
 
     els.teamsList.replaceChildren(...blocks);
   } catch (err) {
@@ -1713,6 +1941,55 @@ function setAuthError(errorEl, message) {
   errorEl.textContent = message;
 }
 
+async function advanceSignup(errorEl, paintForm) {
+  setAuthError(errorEl, "");
+  if (signupStep === 0 && !signupDraft.country) return setAuthError(errorEl, "Choose your country.");
+  if (signupStep === 1 && !signupDraft.club) return setAuthError(errorEl, "Choose your team.");
+  if (signupStep === 2 && !signupDraft.players.length) return setAuthError(errorEl, "Add at least one player.");
+  if (signupStep === 3) {
+    signupDraft.name = document.querySelector("#signup-name")?.value.trim() || "";
+    if (!signupDraft.name) return setAuthError(errorEl, "Add your name.");
+  }
+  if (signupStep === 4) {
+    signupDraft.email = document.querySelector("#signup-email")?.value.trim() || "";
+    if (!signupDraft.email.includes("@")) return setAuthError(errorEl, "Add a real email address.");
+  }
+  if (signupStep === 5) {
+    signupDraft.password = document.querySelector("#signup-password")?.value || "";
+    if (signupDraft.password.length < 4) return setAuthError(errorEl, "Use at least 4 characters.");
+    try {
+      await AUTH.requestSignupCode(signupDraft.email);
+    } catch (err) {
+      return setAuthError(errorEl, err.message || "The confirmation email could not be sent.");
+    }
+  }
+  if (signupStep === 6) {
+    signupDraft.code = document.querySelector("#signup-code")?.value.trim() || "";
+    if (signupDraft.code.length < 6) return setAuthError(errorEl, "Enter the 6-digit code from your email.");
+    try {
+      await AUTH.register({
+        name: signupDraft.name,
+        email: signupDraft.email,
+        password: signupDraft.password,
+        code: signupDraft.code,
+        country: signupDraft.country,
+        favouriteClub: signupDraft.club?.name || "",
+        favouritePlayers: signupDraft.players.map((player) => ({ id: player.id, name: player.name, teamName: player.teamName || "" })),
+      });
+      const clubName = signupDraft.club?.name;
+      signupStep = 0;
+      signupDraft = { country: "", club: null, players: [], name: "", email: "", password: "", code: "" };
+      await afterAuthSuccess();
+      if (clubName && !favorites.includes(clubName)) toggleFavorite(clubName);
+    } catch (err) {
+      setAuthError(errorEl, err.message || "That code did not match.");
+    }
+    return;
+  }
+  signupStep += 1;
+  paintForm();
+}
+
 async function afterAuthSuccess() {
   syncFromAccount();
   await AUTH.updateFavorites(favorites);
@@ -1784,7 +2061,7 @@ function renderAccount() {
     });
     tools.querySelector("#profile-verify").addEventListener("click", async () => {
       const sent = await AUTH.postAccount("/api/auth/verify/request", {});
-      const code = window.prompt(sent.note || "Enter the code", sent.code || "");
+      const code = window.prompt(sent.note || "Enter the code from your email");
       if (!code) return;
       const data = await AUTH.postAccount("/api/auth/verify", { code });
       tools.querySelector("#profile-note").textContent = data.error || "Email verified.";
@@ -1875,16 +2152,89 @@ function renderAccount() {
         <button type="submit" class="auth-btn">Sign in</button>
         <button type="button" class="mini-btn" id="reset-password">Reset password</button>
       `;
-    } else {
-      form.innerHTML = `
-        <label>Name<input name="name" required autocomplete="name" placeholder="Your name" /></label>
-        <label>Email<input name="email" type="email" autocomplete="email" placeholder="you@email.com" /></label>
-        <label>Username<input name="username" autocomplete="username" placeholder="ninetyfan" /></label>
-        <label>Phone<input name="phone" autocomplete="tel" placeholder="+44…" /></label>
-        <label>Password<input name="password" type="password" required autocomplete="new-password" placeholder="Min 4 characters" /></label>
-        <button type="submit" class="auth-btn">Create account</button>
-      `;
+      return;
     }
+    const steps = ["Country", "Team", "Players", "Name", "Email", "Password", "Code"];
+    const dots = steps.map((_, index) => `<span class="${index === signupStep ? "is-on" : ""}"></span>`).join("");
+    const countryOptions = (window.NINETY_DATA.countries || [])
+      .map((country) => `<option value="${escapeHtml(country)}" ${signupDraft.country === country ? "selected" : ""}>${escapeHtml(country)}</option>`)
+      .join("");
+    const suggestions = ["Arsenal", "Real Madrid", "Barcelona", "Manchester City", "Liverpool", "Bayern Munich", "Paris Saint-Germain", "Inter"];
+    let body = "";
+    if (signupStep === 0) {
+      body = `<h3>Which country are you from?</h3><label class="sr-only" for="signup-country">Country</label><select id="signup-country"><option value="">Choose a country</option>${countryOptions}</select>`;
+    } else if (signupStep === 1) {
+      const chosen = signupDraft.club ? `<p class="tutor-picked">${escapeHtml(signupDraft.club.name)}</p>` : "";
+      body = `<h3>What is your favourite team?</h3>${chosen}<div class="tutor-picks">${suggestions.map((name) => `<button type="button" data-suggest-club="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join("")}</div><input id="signup-club-q" placeholder="Search any club" autocomplete="off" /><div id="signup-club-hits"></div>`;
+    } else if (signupStep === 2) {
+      const chips = signupDraft.players.map((player) => `<button type="button" data-drop-player="${escapeHtml(player.id)}">${escapeHtml(player.name)} ×</button>`).join("");
+      body = `<h3>Who are your favourite players?</h3><div class="tutor-picks">${chips}</div><input id="signup-player-q" placeholder="Search a player" autocomplete="off" /><div id="signup-player-hits"></div>`;
+    } else if (signupStep === 3) {
+      body = `<h3>What should we call you?</h3><input id="signup-name" value="${escapeHtml(signupDraft.name)}" placeholder="Your name" autocomplete="name" />`;
+    } else if (signupStep === 4) {
+      body = `<h3>What is your email?</h3><p class="intel-note">We’ll send a confirmation code so the address is really yours.</p><input id="signup-email" type="email" value="${escapeHtml(signupDraft.email)}" placeholder="you@email.com" autocomplete="email" />`;
+    } else if (signupStep === 5) {
+      body = `<h3>Choose a password</h3><input id="signup-password" type="password" placeholder="At least 4 characters" autocomplete="new-password" />`;
+    } else {
+      body = `<h3>Enter the code from your email</h3><p class="intel-note">Check ${escapeHtml(signupDraft.email)} for a 6-digit code.</p><input id="signup-code" inputmode="numeric" maxlength="6" placeholder="000000" value="${escapeHtml(signupDraft.code)}" />`;
+    }
+    form.innerHTML = `<div class="tutor"><div class="tutor-dots" aria-hidden="true">${dots}</div>${body}<div class="tutor-nav"><button type="button" class="mini-btn" id="signup-back" ${signupStep === 0 ? "disabled" : ""}>Back</button><button type="button" class="auth-btn" id="signup-next">${signupStep === steps.length - 1 ? "Create account" : "Next"}</button></div></div>`;
+    form.querySelector("#signup-back")?.addEventListener("click", () => {
+      signupStep = Math.max(0, signupStep - 1);
+      paintForm();
+    });
+    form.querySelector("#signup-country")?.addEventListener("change", (event) => {
+      signupDraft.country = event.target.value;
+    });
+    form.querySelectorAll("[data-suggest-club]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const hits = await API.searchTeams(button.dataset.suggestClub).catch(() => []);
+        signupDraft.club = hits[0] || { name: button.dataset.suggestClub, id: button.dataset.suggestClub };
+        paintForm();
+      });
+    });
+    const clubInput = form.querySelector("#signup-club-q");
+    clubInput?.addEventListener("input", () => {
+      const query = clubInput.value.trim();
+      clearTimeout(clubInput._timer);
+      clubInput._timer = setTimeout(async () => {
+        signupClubHits = query.length < 2 ? [] : await API.searchTeams(query).catch(() => []);
+        const box = form.querySelector("#signup-club-hits");
+        if (!box) return;
+        box.innerHTML = signupClubHits.slice(0, 6).map((hit, index) => `<button type="button" data-pick-club="${index}">${escapeHtml(hit.name)}</button>`).join("");
+        box.querySelectorAll("[data-pick-club]").forEach((button) => {
+          button.addEventListener("click", () => {
+            signupDraft.club = signupClubHits[Number(button.dataset.pickClub)];
+            paintForm();
+          });
+        });
+      }, 220);
+    });
+    const playerInput = form.querySelector("#signup-player-q");
+    playerInput?.addEventListener("input", () => {
+      const query = playerInput.value.trim();
+      clearTimeout(playerInput._timer);
+      playerInput._timer = setTimeout(async () => {
+        signupPlayerHits = query.length < 2 ? [] : await API.searchPlayers(query).catch(() => []);
+        const box = form.querySelector("#signup-player-hits");
+        if (!box) return;
+        box.innerHTML = signupPlayerHits.slice(0, 6).map((hit, index) => `<button type="button" data-pick-player="${index}">${escapeHtml(hit.name)} · ${escapeHtml(hit.teamName || "")}</button>`).join("");
+        box.querySelectorAll("[data-pick-player]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const hit = signupPlayerHits[Number(button.dataset.pickPlayer)];
+            if (hit && !signupDraft.players.some((player) => player.id === hit.id)) signupDraft.players.push(hit);
+            paintForm();
+          });
+        });
+      }, 220);
+    });
+    form.querySelectorAll("[data-drop-player]").forEach((button) => {
+      button.addEventListener("click", () => {
+        signupDraft.players = signupDraft.players.filter((player) => player.id !== button.dataset.dropPlayer);
+        paintForm();
+      });
+    });
+    form.querySelector("#signup-next")?.addEventListener("click", () => advanceSignup(errorEl, paintForm));
   };
 
   formCard.querySelectorAll("[data-mode]").forEach((btn) => {
@@ -1905,7 +2255,7 @@ function renderAccount() {
       body: JSON.stringify({ identity }),
     }).then((res) => res.json());
     if (sent.error) return setAuthError(errorEl, sent.error);
-    const code = window.prompt(sent.note || "Enter the reset code", sent.code || "");
+    const code = window.prompt(sent.note || "Enter the code from your email");
     const password = code ? window.prompt("New password") : "";
     if (!code || !password) return;
     const done = await fetch("/api/auth/reset", {
@@ -1921,20 +2271,14 @@ function renderAccount() {
     const data = new FormData(form);
     setAuthError(errorEl, "");
     try {
-      if (accountMode === "signin") {
-        await AUTH.login({
-          identity: String(data.get("identity") || ""),
-          password: String(data.get("password") || ""),
-        });
-      } else {
-        await AUTH.register({
-          name: String(data.get("name") || ""),
-          email: String(data.get("email") || ""),
-          username: String(data.get("username") || ""),
-          phone: String(data.get("phone") || ""),
-          password: String(data.get("password") || ""),
-        });
+      if (accountMode !== "signin") {
+        await advanceSignup(errorEl, paintForm);
+        return;
       }
+      await AUTH.login({
+        identity: String(data.get("identity") || ""),
+        password: String(data.get("password") || ""),
+      });
       await afterAuthSuccess();
     } catch (err) {
       setAuthError(errorEl, err.message || "Something went wrong.");
@@ -2073,6 +2417,7 @@ document.querySelectorAll(".tab-bar .tab").forEach((tab) => {
       selectedPlayer = null;
     }
     if (tab.dataset.view === "matches") selectedMatch = null;
+    if (tab.dataset.view === "transfers") selectedTransfer = null;
     if (tab.dataset.view === "favourites") fantasyPlayerId = null;
     showView(tab.dataset.view);
   });
@@ -2091,6 +2436,11 @@ els.navBack.addEventListener("click", () => {
   if (currentView === "matches" && selectedMatch) {
     selectedMatch = null;
     renderMatches();
+    return;
+  }
+  if (currentView === "transfers" && selectedTransfer) {
+    selectedTransfer = null;
+    renderTransfers();
     return;
   }
   if (selectedPlayer) {

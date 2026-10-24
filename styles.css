@@ -2831,3 +2831,55 @@ html[data-theme="light"] body {
   color: #8b8498;
   font-weight: 700;
 }
+
+.rank-num {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  margin-right: 6px;
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.comp-picker { padding: 12px 14px 4px; }
+.comp-picker label { display: grid; gap: 6px; font-size: 12px; font-weight: 750; color: var(--secondary); }
+.comp-picker select, .tutor select, .tutor input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--separator);
+  background: var(--card);
+  color: inherit;
+  padding: 12px;
+  font: inherit;
+}
+
+.transfer-hero { padding: 16px; text-align: center; }
+.transfer-route {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: center;
+  margin: 12px 0;
+}
+.transfer-route div { display: grid; justify-items: center; gap: 6px; font-weight: 750; }
+
+.tutor { padding: 8px 4px 12px; }
+.tutor h3 { margin: 8px 0 12px; font-size: 26px; letter-spacing: -0.04em; }
+.tutor-dots { display: flex; gap: 6px; margin-bottom: 8px; }
+.tutor-dots span { width: 18px; height: 4px; border-radius: 99px; background: rgba(255,255,255,.2); }
+.tutor-dots span.is-on { background: var(--blue, #3b82f6); }
+.tutor-picks { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.tutor-picks button, #signup-club-hits button, #signup-player-hits button {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(255,255,255,.12);
+  color: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+.tutor-picked { font-weight: 800; }
+.tutor-nav { display: grid; grid-template-columns: auto 1fr; gap: 8px; margin-top: 16px; }
+#signup-club-hits, #signup-player-hits { display: grid; gap: 8px; margin-top: 8px; }
+#signup-club-hits button, #signup-player-hits button { text-align: left; border-radius: 12px; }
