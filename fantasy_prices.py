@@ -443,6 +443,8 @@ def list_players(query: str = "", slot: str = "", club: str = "", sort: str = "p
             return -(float(row["owned"] or 0))
         if sort == "name":
             return row["name"]
+        if sort == "change":
+            return -abs(float(row.get("priceChange") or 0))
         return row["price"]
     rows.sort(key=sort_key)
     total = len(rows)

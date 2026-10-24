@@ -95,8 +95,9 @@
     ).join("")}</div>`;
   }
 
-  function shell(inner) {
-    ctx.list.innerHTML = `${nav()}<div class="fantasy-page">${inner}</div>`;
+  function shell(inner, options) {
+    const bar = options?.bare ? "" : nav();
+    ctx.list.innerHTML = `${bar}<div class="fantasy-page${options?.bare ? " is-home" : ""}">${inner}</div>`;
     ctx.list.querySelectorAll("[data-screen]").forEach((button) => {
       button.addEventListener("click", () => go(button.dataset.screen));
     });
@@ -112,30 +113,294 @@
     return `Deadline in ${hours}h ${mins}m`;
   }
 
+  const FLAGS = {
+    england: "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+    "united kingdom": "🇬🇧",
+    uk: "🇬🇧",
+    spain: "🇪🇸",
+    france: "🇫🇷",
+    germany: "🇩🇪",
+    italy: "🇮🇹",
+    nigeria: "🇳🇬",
+    portugal: "🇵🇹",
+    netherlands: "🇳🇱",
+    brazil: "🇧🇷",
+    argentina: "🇦🇷",
+    usa: "🇺🇸",
+    "united states": "🇺🇸",
+  };
+  const BADGE_COLORS = ["#102a52", "#0057b8", "#1a1a1a", "#6b4e16", "#7a1f3d"];
+  let homeTab = "leagues";
+
+  function flagFor(country) {
+    return FLAGS[String(country || "").trim().toLowerCase()] || "";
+  }
+
+  function commas(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "–";
+    return new Intl.NumberFormat("en-GB").format(number);
+  }
+
+  function deadlineStamp() {
+    const offset = GAME().offset();
+    const now = new Date();
+    const currentWeek = GAME().weekNumber(now);
+    let deadline = CORE().deadlineMs(ctx.matches || [], now, offset);
+    let week = currentWeek;
+    if (!deadline || deadline <= Date.now()) {
+      const next = new Date(Date.parse(`${CORE().weekKey(now)}T12:00:00Z`) + 7 * 86400000);
+      const upcoming = CORE().deadlineMs(ctx.matches || [], next, offset);
+      week = currentWeek + 1;
+      deadline = upcoming;
+    }
+    return { deadline, week, currentWeek };
+  }
+
+  function formatDeadline(ms) {
+    if (!ms) return "No kickoff in the loaded list yet";
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/London",
+      weekday: "long",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(ms));
+    const get = (type) => parts.find((part) => part.type === type)?.value || "";
+    return `${get("weekday")} ${get("day")} ${get("month")} at ${get("hour")}:${get("minute")}`;
+  }
+
+  function moveMark(current, previous) {
+    if (previous == null || previous === current) return `<span class="rank-flat">–</span>`;
+    if (current < previous) return `<span class="rank-up">▲</span>`;
+    return `<span class="rank-down">▼</span>`;
+  }
+
   function pageHome() {
     const raw = ctx.points?.total || 0;
     const net = GAME().netPoints(state, raw);
-    const problems = GAME().issues(state);
-    shell(`
-      <div class="group fantasy-head">
-        <div class="fantasy-bank"><strong>${ctx.money(CORE().BUDGET - GAME().spent(state))}</strong><span>left of £150.0m</span></div>
-        <div class="fantasy-bank"><strong>${net}</strong><span>${esc(state.teamName || "This week")}</span></div>
+    const stamp = deadlineStamp();
+    const country = state.country || ctx.user?.country || "";
+    const manager = ctx.user?.displayName || ctx.user?.name || "Manager";
+    const initials = (state.teamName || "FC")
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((word) => word[0])
+      .join("")
+      .toUpperCase() || "FC";
+    const color = BADGE_COLORS[(state.badgeColor || 0) % BADGE_COLORS.length];
+    const left = ctx.money(CORE().BUDGET - GAME().spent(state));
+    shell(
+      `
+      <section class="fpl-card">
+        <div class="fpl-top">
+          <button type="button" class="fpl-badge" id="gen-badge" style="--badge:${color}" title="Generate team badge">
+            <strong>${esc(initials)}</strong>
+            <small>Generate team badge</small>
+          </button>
+          <div class="fpl-id">
+            <h2>${esc(state.teamName || "Name your team")}</h2>
+            <p>${flagFor(country) ? `${flagFor(country)} ` : ""}${esc(manager)}</p>
+            <p class="fpl-bank">${left} left</p>
+          </div>
+          <button type="button" class="fpl-go" data-screen="team" aria-label="Open team">›</button>
+        </div>
+        <div class="fpl-split"></div>
+        <p class="fpl-kicker">Gameweek ${stamp.currentWeek}</p>
+        <div class="fpl-stats">
+          <button type="button" data-screen="stats"><span class="fpl-stat-num" id="gw-average">–</span><span class="fpl-stat-label">Average</span></button>
+          <button type="button" data-screen="points"><span class="fpl-stat-num is-hero">${net}</span><span class="fpl-stat-label">Points ›</span></button>
+          <button type="button" data-screen="ranks"><span class="fpl-stat-num" id="gw-high">–</span><span class="fpl-stat-label">Highest ›</span></button>
+        </div>
+        <div class="fpl-split"></div>
+        <div class="fpl-deadline">
+          <p class="fpl-kicker">Gameweek ${stamp.week}</p>
+          <strong>Deadline: ${esc(formatDeadline(stamp.deadline))}</strong>
+        </div>
+        <div class="fpl-actions">
+          <button type="button" class="fpl-action" data-screen="team"><span aria-hidden="true">👕</span> Pick Team</button>
+          <button type="button" class="fpl-action" data-screen="transfers"><span aria-hidden="true">⇄</span> Transfers</button>
+        </div>
+      </section>
+      <div class="fpl-menu">
+        <button type="button" class="fpl-row" data-screen="fixtures"><span>Fixtures</span><span>›</span></button>
+        <button type="button" class="fpl-row" data-screen="prices"><span>Price Changes</span><span>›</span></button>
+        <button type="button" class="fpl-row" data-screen="fixtures"><span>Fixture Difficulty Rating</span><span>›</span></button>
+        <button type="button" class="fpl-row" data-screen="stats"><span>Player Statistics</span><span>›</span></button>
+        <button type="button" class="fpl-row" data-screen="pieces"><span>Set Piece Takers</span><span>›</span></button>
       </div>
-      <p class="group-title">${esc(deadlineLine())} · team rating ${GAME().teamRating(state)} · ${esc(state.mode)} · ${state.built ? "Submitted" : "Draft squad"}</p>
-      <div class="ticker" title="Fixture ticker">${ticker()}</div>
-      <div class="group">
-        ${PAGES.map(([id, label]) => `<button type="button" class="setting-row fantasy-link" data-screen="${id}"><strong>${label}</strong><span>›</span></button>`).join("")}
-        <button type="button" class="setting-row fantasy-link" data-screen="compare"><strong>Compare</strong><span>›</span></button>
-        <button type="button" class="setting-row fantasy-link" data-screen="h2h"><strong>Head to head</strong><span>›</span></button>
-        <button type="button" class="setting-row fantasy-link" data-screen="cup"><strong>Cup</strong><span>›</span></button>
-        <button type="button" class="setting-row fantasy-link" data-screen="draft"><strong>Draft</strong><span>›</span></button>
-        <button type="button" class="setting-row fantasy-link" data-screen="planner"><strong>Planner</strong><span>›</span></button>
-        <button type="button" class="setting-row fantasy-link" data-screen="alerts"><strong>Notifications</strong><span>›</span></button>
-        <button type="button" class="setting-row fantasy-link" data-screen="season"><strong>Season history</strong><span>›</span></button>
-        <button type="button" class="setting-row fantasy-link" data-screen="admin"><strong>Admin</strong><span>›</span></button>
-      </div>
-      <div class="group">${problems.length ? problems.map((note) => `<div class="setting-row"><span>${esc(note)}</span></div>`).join("") : `<div class="empty">Squad checks are clear.</div>`}</div>
-    `);
+      <section class="fpl-section">
+        <h3>Leagues &amp; Cups</h3>
+        <div class="fpl-switch" role="tablist">
+          <button type="button" class="${homeTab === "leagues" ? "is-on" : ""}" data-home-tab="leagues">Leagues</button>
+          <button type="button" class="${homeTab === "cups" ? "is-on" : ""}" data-home-tab="cups">Cups</button>
+        </div>
+        <div class="fpl-pair">
+          <button type="button" class="fpl-pill" data-screen="leagues">+ Join Leagues</button>
+          <button type="button" class="fpl-pill" data-screen="leagues">⚙ Configure Leagues</button>
+        </div>
+        <h4 id="home-league-title">${homeTab === "cups" ? "Cups" : "Invitational Classic Leagues"}</h4>
+        <div id="home-leagues"><div class="empty">Loading your leagues…</div></div>
+        <h4>General Leagues</h4>
+        <div id="home-general"><div class="empty">Loading ranks…</div></div>
+        <button type="button" class="fpl-row fpl-more" data-screen="more"><span>More</span><span>›</span></button>
+      </section>
+    `,
+      { bare: true }
+    );
+    ctx.list.querySelector("#gen-badge")?.addEventListener("click", () => {
+      state.badgeColor = ((state.badgeColor || 0) + 1) % BADGE_COLORS.length;
+      persist();
+      render(ctx);
+    });
+    ctx.list.querySelectorAll("[data-home-tab]").forEach((button) => {
+      button.addEventListener("click", () => {
+        homeTab = button.dataset.homeTab;
+        render(ctx);
+      });
+    });
+    loadHomeBoard(renderStamp);
+  }
+
+  async function loadHomeBoard(stamp) {
+    const codes = state.leagueCodes || [];
+    const leagues = [];
+    for (const code of codes) {
+      const league = await fetch(`/api/fantasy/league?code=${encodeURIComponent(code)}`).then((res) => res.json()).catch(() => null);
+      if (league?.code) leagues.push(league);
+    }
+    const country = state.country || ctx.user?.country || "";
+    const [overall, week, local] = await Promise.all([
+      fetch("/api/fantasy/rankings").then((res) => res.json()).catch(() => ({ rankings: [] })),
+      fetch("/api/fantasy/rankings?sort=week").then((res) => res.json()).catch(() => ({ rankings: [] })),
+      country
+        ? fetch(`/api/fantasy/rankings?country=${encodeURIComponent(country)}`).then((res) => res.json()).catch(() => ({ rankings: [] }))
+        : Promise.resolve({ rankings: [] }),
+    ]);
+    if (stamp !== renderStamp || screen !== "home") return;
+    const scores = (week.rankings || []).map((row) => Number(row.weekPoints) || 0);
+    const average = scores.length ? Math.round(scores.reduce((sum, value) => sum + value, 0) / scores.length) : 0;
+    const highest = scores.length ? Math.max(...scores) : 0;
+    const averageNode = ctx.list.querySelector("#gw-average");
+    const highNode = ctx.list.querySelector("#gw-high");
+    if (averageNode) averageNode.textContent = commas(average);
+    if (highNode) highNode.textContent = commas(highest);
+    const mine = managerId();
+    const marks = { ...(state.leagueMarks || {}) };
+    const shown = leagues.filter((league) => (homeTab === "cups" ? league.kind === "cup" : league.kind !== "cup"));
+    const leagueBox = ctx.list.querySelector("#home-leagues");
+    if (leagueBox) {
+      leagueBox.innerHTML = shown.length
+        ? shown
+            .map((league) => {
+              const member = (league.members || []).find((item) => item.userId === mine);
+              const rank = member?.rank || league.members?.length || "–";
+              const previous = marks[league.code];
+              marks[league.code] = typeof rank === "number" ? rank : marks[league.code];
+              return `<button type="button" class="fpl-league" data-league="${esc(league.code)}"><span>${esc(league.name)}</span><span class="fpl-rank">${rank} ${moveMark(rank, previous)}</span></button>`;
+            })
+            .join("")
+        : `<div class="empty">${homeTab === "cups" ? "No cups yet. Create one from Join Leagues." : "Join a league to see it here."}</div>`;
+      leagueBox.querySelectorAll("[data-league]").forEach((button) => {
+        button.addEventListener("click", () => {
+          leagueCode = button.dataset.league;
+          go(homeTab === "cups" ? "cup" : "league");
+        });
+      });
+    }
+    const me = (overall.rankings || []).find((row) => row.userId === mine);
+    const meWeek = (week.rankings || []).find((row) => row.userId === mine);
+    const meLocal = (local.rankings || []).find((row) => row.userId === mine);
+    const previousOverall = state.boardMarks?.overall;
+    const previousWeek = state.boardMarks?.week;
+    const previousLocal = state.boardMarks?.country;
+    const general = [
+      ["Overall", me?.rank, overall.rankings?.length, previousOverall, "ranks"],
+      country ? [country, meLocal?.rank, local.rankings?.length, previousLocal, "ranks"] : null,
+      [`Gameweek ${GAME().weekNumber()}`, meWeek?.rank, week.rankings?.length, previousWeek, "ranks"],
+    ].filter(Boolean);
+    const generalBox = ctx.list.querySelector("#home-general");
+    if (generalBox) {
+      generalBox.innerHTML = general
+        .map(([label, rank, total, previous]) => {
+          const place = rank ? commas(rank) : "–";
+          const ofTotal = total ? ` <small>of ${commas(total)}</small>` : "";
+          return `<button type="button" class="fpl-league" data-screen="ranks"><span>${esc(label)}</span><span class="fpl-rank">${place}${ofTotal} ${rank ? moveMark(rank, previous) : `<span class="rank-flat">–</span>`}</span></button>`;
+        })
+        .join("");
+    }
+    state.leagueMarks = marks;
+    state.boardMarks = { overall: me?.rank || null, week: meWeek?.rank || null, country: meLocal?.rank || null };
+    GAME().save(state);
+  }
+
+  function pageMore() {
+    const links = [
+      ["live", "Live"],
+      ["players", "Players"],
+      ["points", "Points"],
+      ["history", "History"],
+      ["season", "Season history"],
+      ["achievements", "Badges"],
+      ["news", "News"],
+      ["alerts", "Notifications"],
+      ["rules", "Rules"],
+      ["settings", "Settings"],
+      ["draft", "Draft"],
+      ["planner", "Planner"],
+      ["compare", "Compare"],
+      ["h2h", "Head to head"],
+      ["admin", "Admin"],
+    ];
+    shell(`<div class="fpl-menu">${links.map(([id, label]) => `<button type="button" class="fpl-row" data-screen="${id}"><span>${label}</span><span>›</span></button>`).join("")}</div>`);
+  }
+
+  async function pagePrices() {
+    const stamp = renderStamp;
+    shell(`<p class="group-title">Price changes</p><div class="group" id="price-box"><div class="loading">Loading price moves…</div></div>`);
+    const data = await fetch("/api/fantasy/players?sort=change&limit=40").then((res) => res.json()).catch(() => ({ players: [] }));
+    if (stamp !== renderStamp) return;
+    const box = ctx.list.querySelector("#price-box");
+    if (!box) return;
+    const rows = (data.players || []).filter((player) => Number(player.priceChange));
+    box.innerHTML = rows
+      .map((player) => {
+        const up = Number(player.priceChange) > 0;
+        return `<button type="button" class="player-row" data-open-db="${esc(player.id)}"><div><div class="team-name">${esc(player.name)}</div><div class="team-meta">${esc(player.club)} · ${ctx.money(player.price)}</div></div><span class="${up ? "rank-up" : "rank-down"}">${up ? "+" : ""}${player.priceChange}</span></button>`;
+      })
+      .join("") || `<div class="empty">No price moves in the book right now.</div>`;
+    box.querySelectorAll("[data-open-db]").forEach((button) => {
+      button.addEventListener("click", () => {
+        focusId = button.dataset.openDb;
+        state.pending = (data.players || []).find((player) => player.id === focusId) || null;
+        go("profile");
+      });
+    });
+  }
+
+  async function pagePieces() {
+    const stamp = renderStamp;
+    shell(`<p class="group-title">Set piece takers</p><div class="group" id="piece-box"><div class="loading">Loading takers…</div></div>`);
+    const data = await fetch("/api/fantasy/players?sort=points&limit=80").then((res) => res.json()).catch(() => ({ players: [] }));
+    if (stamp !== renderStamp) return;
+    const box = ctx.list.querySelector("#piece-box");
+    if (!box) return;
+    const rows = (data.players || []).filter((player) => player.penalties || player.setPieces).slice(0, 30);
+    box.innerHTML = rows
+      .map(
+        (player) => `<button type="button" class="player-row" data-open-db="${esc(player.id)}"><div><div class="team-name">${esc(player.name)}</div><div class="team-meta">${esc(player.club)} · ${esc(player.penalties || player.setPieces)}</div></div><span>${ctx.money(player.price)}</span></button>`
+      )
+      .join("") || `<div class="empty">No penalty or set-piece notes in this slice of the book.</div>`;
+    box.querySelectorAll("[data-open-db]").forEach((button) => {
+      button.addEventListener("click", () => {
+        focusId = button.dataset.openDb;
+        state.pending = rows.find((player) => player.id === focusId) || null;
+        go("profile");
+      });
+    });
   }
 
   function ticker() {
@@ -1107,6 +1372,9 @@
     stats: pageStats,
     news: pageNews,
     alerts: pageNotices,
+    prices: pagePrices,
+    pieces: pagePieces,
+    more: pageMore,
     achievements: pageAchievements,
     rules: pageRules,
     settings: pageSettings,
@@ -1139,7 +1407,7 @@
   root.NINETY_FANTASY_UI = {
     render,
     screen: () => screen,
-    title: () => ({ compare: "Compare", h2h: "Head to head", cup: "Cup", draft: "Draft", planner: "Planner", admin: "Admin", alerts: "Notifications", season: "Season", profile: "Player", league: "League", pick: "Pick team" }[screen] || PAGES.find((page) => page[0] === screen)?.[1] || "Fantasy"),
+    title: () => ({ compare: "Compare", h2h: "Head to head", cup: "Cup", draft: "Draft", planner: "Planner", admin: "Admin", alerts: "Notifications", season: "Season", profile: "Player", league: "League", pick: "Pick team", prices: "Price Changes", pieces: "Set Piece Takers", more: "More" }[screen] || PAGES.find((page) => page[0] === screen)?.[1] || "Fantasy"),
     back() {
       if (screen === "home") return false;
       screen = screen === "profile" || screen === "league" || screen === "h2h" || screen === "cup" ? "home" : "home";

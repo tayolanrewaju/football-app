@@ -1016,6 +1016,242 @@ html[data-theme="light"] body {
 
 .fantasy-link { width: 100%; }
 
+.fantasy-page.is-home { padding-bottom: 18px; }
+
+.fpl-card {
+  margin: 10px 12px 16px;
+  padding: 18px 16px 16px;
+  border-radius: 28px;
+  color: #f7f4ee;
+  background:
+    radial-gradient(90% 70% at 100% 0%, rgba(212, 175, 55, 0.42), transparent 48%),
+    linear-gradient(168deg, #2a6fd4 0%, #0d4eae 38%, #0a2f6b 100%);
+  box-shadow: 0 18px 40px rgba(6, 24, 64, 0.35);
+}
+
+.fpl-top { display: flex; align-items: center; gap: 12px; }
+
+.fpl-badge {
+  width: 72px;
+  height: 72px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 18px;
+  background: #f4f1e8;
+  color: var(--badge, #102a52);
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  padding: 6px;
+}
+
+.fpl-badge strong {
+  font-size: 20px;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.fpl-badge small {
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1.15;
+  text-align: center;
+  max-width: 58px;
+}
+
+.fpl-id { flex: 1; min-width: 0; }
+.fpl-id h2 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+}
+.fpl-id p { margin: 4px 0 0; font-weight: 680; font-size: 15px; }
+.fpl-bank { opacity: 0.78; font-size: 13px !important; }
+
+.fpl-go {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 28px;
+  line-height: 1;
+  padding: 4px;
+}
+
+.fpl-split {
+  height: 1px;
+  margin: 16px 8px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.fpl-kicker {
+  margin: 0;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.fpl-stats {
+  display: grid;
+  grid-template-columns: 1fr 1.25fr 1fr;
+  align-items: end;
+  text-align: center;
+  margin-top: 8px;
+}
+
+.fpl-stats button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.fpl-stat-num {
+  display: block;
+  font-size: 34px;
+  font-weight: 720;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+.fpl-stat-num.is-hero {
+  font-size: 64px;
+  font-weight: 760;
+  letter-spacing: -0.06em;
+}
+
+.fpl-stat-label {
+  display: block;
+  margin-top: 6px;
+  font-size: 15px;
+  font-weight: 680;
+}
+
+.fpl-deadline { text-align: center; }
+.fpl-deadline strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.fpl-actions { display: grid; gap: 10px; margin-top: 18px; }
+
+.fpl-action {
+  height: 54px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(8, 22, 52, 0.38);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 750;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.fpl-menu {
+  margin: 0 12px 14px;
+  background: var(--grouped);
+  border: 1px solid var(--glass-border);
+  border-radius: 22px;
+  overflow: hidden;
+}
+
+.fpl-row {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--separator);
+  background: transparent;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 750;
+  text-align: left;
+}
+
+.fpl-row:last-child { border-bottom: 0; }
+
+.fpl-section { margin: 6px 12px 8px; }
+.fpl-section h3 {
+  margin: 8px 4px 12px;
+  font-size: 28px;
+  letter-spacing: -0.045em;
+}
+.fpl-section h4 {
+  margin: 14px 4px 8px;
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.fpl-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.fpl-switch button {
+  border: 0;
+  border-radius: 12px;
+  padding: 10px;
+  background: transparent;
+  color: var(--ink);
+  font-weight: 750;
+}
+
+.fpl-switch button.is-on {
+  background: #f4f1e8;
+  color: #241c44;
+}
+
+.fpl-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.fpl-pill {
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  background: transparent;
+  color: var(--ink);
+  font-weight: 750;
+  padding: 12px 8px;
+}
+
+.fpl-league {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--grouped);
+  color: var(--ink);
+  font-weight: 720;
+  text-align: left;
+}
+
+.fpl-rank { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.fpl-rank small { color: var(--secondary); font-weight: 650; }
+.rank-up { color: #1f9d55; }
+.rank-down { color: #e23b4a; }
+.rank-flat { color: var(--secondary); }
+.fpl-more { margin-top: 8px; border: 1px solid var(--glass-border); border-radius: 16px; background: var(--grouped); }
+
 .fantasy-page .team-search { margin-top: 8px; }
 
 .bar {
