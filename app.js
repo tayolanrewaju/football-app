@@ -16,6 +16,7 @@ const API = window.NINETY_API;
 const AI = window.NINETY_AI;
 const AUTH = window.NINETY_AUTH;
 const FANTASY = window.NINETY_FANTASY;
+const ALERTS = window.NINETY_ALERTS;
 const TRANSFERS = window.NINETY_DATA.transfers;
 
 let matchLeague = "all";
@@ -76,8 +77,13 @@ let favorites = loadFavorites();
 let alertSettings = loadJson(KEYS.alerts, {
   enabled: false,
   matchReminders: true,
+  eventAlerts: true,
   transferAlerts: true,
 });
+let alertSeen = new Set(loadJson("ninety-alert-seen-v1", []));
+let alertLog = loadJson("ninety-alert-log-v1", []);
+let alertPrimed = localStorage.getItem("ninety-alert-primed") === "1";
+let alertWatching = false;
 
 let teamSearchQuery = "";
 let teamSearchClubs = [];
@@ -259,6 +265,100 @@ function refreshAccountButton() {
   }
 }
 
+function rememberAlerts(keys) {
+  let changed = false;
+  for (const key of keys) {
+    if (alertSeen.has(key)) continue;
+    alertSeen.add(key);
+    changed = true;
+  }
+  if (!changed) return;
+  const list = [...alertSeen].slice(-500);
+  alertSeen = new Set(list);
+  saveJson("ninety-alert-seen-v1", list);
+}
+
+function deliverAlert(note) {
+  alertLog = [{ title: note.title, body: note.body, at: Date.now() }, ...alertLog].slice(0, 20);
+  saveJson("ninety-alert-log-v1", alertLog);
+  const toast = document.querySelector("#alert-toast");
+  if (toast) {
+    toast.hidden = false;
+    toast.innerHTML = `<strong>${escapeHtml(note.title)}</strong><span>${escapeHtml(note.body)}</span>`;
+    clearTimeout(deliverAlert.timer);
+    deliverAlert.timer = setTimeout(() => {
+      toast.hidden = true;
+    }, 6000);
+  }
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    try {
+      new Notification(note.title, { body: note.body, icon: "apple-touch-icon.png", tag: note.key || note.title });
+    } catch {
+      /* The browser can block a notification without failing the rest of the alert. */
+    }
+  }
+}
+
+async function watchFavouriteAlerts() {
+  if (alertWatching) return;
+  if (!alertSettings.enabled || !favorites.length || !live.matches.length) return;
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  alertWatching = true;
+  try {
+    const now = Date.now();
+    const interesting = live.matches
+      .filter((match) => {
+        if (!ALERTS.involvesFavourite(match, favorites)) return false;
+        const start = new Date(match.start).getTime();
+        const soon = match.status === "Upcoming" && start - now < 20 * 60 * 1000 && now - start < 3 * 60 * 60 * 1000;
+        const recentFinal = match.status === "FT" && Number.isFinite(start) && now - start < 4 * 60 * 60 * 1000 && now > start;
+        return match.status === "Live" || soon || recentFinal;
+      })
+      .slice(0, 8);
+    const eventsByMatch = {};
+    await Promise.all(
+      interesting
+        .filter((match) => match.status !== "Upcoming" || new Date(match.start).getTime() <= now)
+        .map(async (match) => {
+          try {
+            const detail = await API.loadMatchDetail(match.league, match.id);
+            eventsByMatch[match.id] = detail.events || [];
+          } catch {
+            eventsByMatch[match.id] = [];
+          }
+        })
+    );
+    const settings = { ...alertSettings, eventAlerts: alertSettings.eventAlerts !== false };
+    if (!alertPrimed) {
+      const quiet = ALERTS.planAlerts({
+        matches: live.matches,
+        favorites,
+        now,
+        seen: alertSeen,
+        settings,
+        eventsByMatch,
+        prime: true,
+      });
+      rememberAlerts(quiet.mark);
+      alertPrimed = true;
+      localStorage.setItem("ninety-alert-primed", "1");
+    }
+    const plan = ALERTS.planAlerts({
+      matches: live.matches,
+      favorites,
+      now,
+      seen: alertSeen,
+      settings,
+      eventsByMatch,
+      prime: false,
+    });
+    rememberAlerts(plan.mark);
+    plan.notify.forEach(deliverAlert);
+  } finally {
+    alertWatching = false;
+  }
+}
+
 async function bootstrapLive() {
   if (!live.matches.length) {
     els.matchesList.innerHTML = `<div class="loading">Loading live scores…</div>`;
@@ -281,6 +381,7 @@ async function bootstrapLive() {
     live.matches = data.matches;
     live.ready = true;
     live.error = null;
+    watchFavouriteAlerts();
   } catch (err) {
     if (!live.matches.length) {
       live.error = String(err?.message || err);
@@ -1373,8 +1474,11 @@ function renderFantasy() {
     })
     .join("");
   pitch.innerHTML = `
-    <div class="pitch">
-      <div class="pitch-markings" aria-hidden="true"></div>
+    <div class="pitch pitch-portrait">
+      <div class="pitch-markings" aria-hidden="true">
+        <span class="pitch-box pitch-box-top"></span>
+        <span class="pitch-box pitch-box-bottom"></span>
+      </div>
       <p class="pitch-shape">${xi.length}/11</p>
       ${pitchLines || `<p class="pitch-empty">Sign players to fill the pitch.</p>`}
     </div>
@@ -1486,17 +1590,34 @@ function renderFavourites() {
   alertGroup.className = "group";
   alertGroup.innerHTML = `
     <div class="setting-row">
-      <label><strong>Match reminders</strong><span>Favourite kickoffs</span></label>
+      <label><strong>Kickoff alerts</strong><span>When a followed club is about to play, or the match is on</span></label>
       <label class="switch"><input type="checkbox" id="alert-matches" ${alertSettings.matchReminders ? "checked" : ""} /><span></span></label>
+    </div>
+    <div class="setting-row">
+      <label><strong>Goals and cards</strong><span>Goals, penalties, yellow cards, and red cards</span></label>
+      <label class="switch"><input type="checkbox" id="alert-events" ${alertSettings.eventAlerts !== false ? "checked" : ""} /><span></span></label>
     </div>
     <div class="setting-row">
       <label><strong>Transfer pings</strong><span>2027 window deals</span></label>
       <label class="switch"><input type="checkbox" id="alert-transfers" ${alertSettings.transferAlerts ? "checked" : ""} /><span></span></label>
     </div>
+    ${(alertLog || [])
+      .slice(0, 6)
+      .map(
+        (item) =>
+          `<div class="setting-row"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.body)}</span></div>`
+      )
+      .join("")}
   `;
   alertGroup.querySelector("#alert-matches").addEventListener("change", (e) => {
     alertSettings.matchReminders = e.target.checked;
     persist();
+    watchFavouriteAlerts();
+  });
+  alertGroup.querySelector("#alert-events").addEventListener("change", (e) => {
+    alertSettings.eventAlerts = e.target.checked;
+    persist();
+    watchFavouriteAlerts();
   });
   alertGroup.querySelector("#alert-transfers").addEventListener("change", (e) => {
     alertSettings.transferAlerts = e.target.checked;
@@ -1511,7 +1632,10 @@ function renderFavourites() {
     const permission = await Notification.requestPermission();
     alertSettings.enabled = permission === "granted";
     persist();
-    if (alertSettings.enabled) new Notification("Derby", { body: "Alerts ready." });
+    if (alertSettings.enabled) {
+      deliverAlert({ key: `ready-${Date.now()}`, title: "Derby", body: "Alerts are on for the clubs you follow." });
+      watchFavouriteAlerts();
+    }
     renderFavourites();
   });
 
@@ -1932,6 +2056,9 @@ bootstrapLive();
 setInterval(() => {
   if (document.visibilityState === "visible") bootstrapLive();
 }, 90_000);
+setInterval(() => {
+  watchFavouriteAlerts();
+}, 25_000);
 
 if (!els.askLog.children.length) {
   appendAsk(

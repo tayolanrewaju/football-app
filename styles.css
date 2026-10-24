@@ -971,6 +971,76 @@ button, input { font: inherit; color: inherit; }
 .fantasy-line { padding-left: 28px; }
 .fantasy-line span:last-child { font-variant-numeric: tabular-nums; font-weight: 750; }
 
+.pitch.pitch-portrait {
+  width: min(100% - 8px, 390px);
+  min-height: 640px;
+  aspect-ratio: 68 / 105;
+  margin-inline: auto;
+  padding: 28px 8px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.pitch.pitch-portrait .pitch-line {
+  flex: 1;
+}
+
+.pitch.pitch-portrait .pitch-markings::before {
+  left: 10px;
+  right: 10px;
+  top: 50%;
+  bottom: auto;
+  width: auto;
+  height: 2px;
+  transform: none;
+}
+
+.pitch-box {
+  position: absolute;
+  left: 50%;
+  width: 46%;
+  height: 14%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  transform: translateX(-50%);
+}
+
+.pitch-box-top {
+  top: 0;
+  border-top: 0;
+}
+
+.pitch-box-bottom {
+  bottom: 0;
+  border-bottom: 0;
+}
+
+.alert-toast {
+  position: absolute;
+  z-index: 30;
+  left: 16px;
+  right: 16px;
+  top: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(26, 26, 26, 0.92);
+  border: 1px solid rgba(212, 175, 55, 0.55);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  color: #fff;
+}
+
+.alert-toast strong {
+  display: block;
+  font-size: 14px;
+}
+
+.alert-toast span {
+  display: block;
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 13px;
+}
+
 .pitch-name {
   font-size: 10px;
   font-weight: 700;
