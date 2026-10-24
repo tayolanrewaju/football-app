@@ -459,7 +459,7 @@ def list_players(query: str = "", slot: str = "", club: str = "", sort: str = "p
             return row["name"]
         if sort == "change":
             return -abs(float(row.get("priceChange") or 0))
-        return row["price"]
+        return -(float(row.get("price") or 0))
     rows.sort(key=sort_key)
     total = len(rows)
     start = max(0, offset)

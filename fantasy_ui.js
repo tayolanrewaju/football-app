@@ -35,6 +35,12 @@
   let transferTab = "pitch";
   let transferStat = "fixture";
   let transferFocus = false;
+  let addSlot = "";
+  let addMax = "";
+  let addClub = "";
+  let addQuery = "";
+  let addSort = "price";
+  let addClubs = [];
   let badgeBusy = false;
   let renderStamp = 0;
   let rulesLoaded = false;
@@ -681,9 +687,9 @@
     });
     ctx.list.querySelectorAll("[data-add-slot]").forEach((button) => {
       button.addEventListener("click", () => {
-        transferTab = "list";
-        transferFocus = true;
-        go("transfers");
+        addSlot = button.dataset.addSlot || "";
+        addQuery = "";
+        go("add");
       });
     });
     ctx.list.querySelector("#share-team")?.addEventListener("click", async () => {
@@ -716,7 +722,7 @@
       const players = state.squad.filter((player) => player.slot === slot);
       const cells = players.map((player) => shirtCard(player, { mode: transferStat, when, price: ctx.money(player.price), sell: true }));
       const need = caps[slot] || 0;
-      while (cells.length < need) cells.push(`<button type="button" class="shirt-card is-empty" data-add aria-label="Add player"><span class="shirt-photo"><span class="shirt-sub"></span></span><span class="shirt-name"></span></button>`);
+      while (cells.length < need) cells.push(`<button type="button" class="shirt-card is-empty is-add" data-add-slot="${slot}" aria-label="Add ${SLOT_LABEL[slot] || "player"}"><span class="shirt-photo"><span class="shirt-plus" aria-hidden="true">+</span></span><span class="shirt-name"></span></button>`);
       return `<div class="gw-line" data-line="${slot}">${cells.join("")}</div>`;
     });
     const crest = state.badgeImage
@@ -811,13 +817,13 @@
         render(ctx);
       });
     });
-    const openSearch = () => {
-      transferTab = "list";
-      transferFocus = true;
-      render(ctx);
+    const openAdd = (slot = "") => {
+      addSlot = slot || "";
+      addQuery = "";
+      go("add");
     };
-    ctx.list.querySelector("#add-player")?.addEventListener("click", openSearch);
-    ctx.list.querySelectorAll("[data-add]").forEach((button) => button.addEventListener("click", openSearch));
+    ctx.list.querySelector("#add-player")?.addEventListener("click", () => openAdd(""));
+    ctx.list.querySelectorAll("[data-add-slot]").forEach((button) => button.addEventListener("click", () => openAdd(button.dataset.addSlot || "")));
     ctx.list.querySelector("#xfer-next")?.addEventListener("click", () => go("team"));
     ctx.list.querySelector("#undo-transfer")?.addEventListener("click", () => {
       const error = GAME().rollback(state);
@@ -900,6 +906,171 @@
       ctx.list.querySelector("#sign-form input")?.focus();
     }
     queueFaces(renderStamp);
+  }
+
+  function pageAdd() {
+    const left = CORE().BUDGET - GAME().spent(state);
+    const crest = state.badgeImage
+      ? `<img src="${esc(state.badgeImage)}" alt="" />`
+      : `<span class="gw-crest-mark"></span>`;
+    const slotName = { "": "All Positions", G: "GKP", D: "DEF", M: "MID", A: "FWD" };
+    const caps = ["", "15", "12", "10", "8", "6", "5"];
+    shell(
+      `
+      <div class="gw-screen is-add">
+        <header class="gw-head">
+          <button type="button" class="gw-back" id="add-back" aria-label="Back">‹</button>
+          <div class="gw-titles"><h2>Add Player</h2></div>
+          <div class="gw-crest">${crest}</div>
+        </header>
+        <p class="add-bank">Bank ${esc(ctx.money(left))}</p>
+        <form class="add-search" id="add-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16.5 20 20.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input name="q" value="${esc(addQuery)}" placeholder="Search By Name" autocomplete="off" />
+        </form>
+        <div class="add-filters">
+          <button type="button" id="add-reset" aria-label="Clear filters">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+          <label class="add-select"><select id="add-slot" aria-label="Position">${Object.entries(slotName).map(([value, label]) => `<option value="${value}" ${addSlot === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+          <label class="add-select"><select id="add-max" aria-label="Maximum price">${caps.map((value) => `<option value="${value}" ${addMax === value ? "selected" : ""}>${value ? `£${Number(value).toFixed(1)}m` : "Unlimited"}</option>`).join("")}</select></label>
+          <label class="add-select"><select id="add-club" aria-label="Club"><option value="">All clubs</option>${addClubs.map((club) => `<option value="${esc(club)}" ${addClub === club ? "selected" : ""}>${esc(club)}</option>`).join("")}</select></label>
+        </div>
+        <div class="add-table">
+          <div class="add-columns">
+            <button type="button" data-add-sort="name" class="${addSort === "name" ? "is-on" : ""}">Player</button>
+            <button type="button" data-add-sort="form" class="${addSort === "form" ? "is-on" : ""}">Form</button>
+            <button type="button" data-add-sort="price" class="${addSort === "price" ? "is-on" : ""}">Current Price</button>
+            <button type="button" data-add-sort="owned" class="${addSort === "owned" ? "is-on" : ""}">Selected</button>
+          </div>
+          <div id="add-rows"><p class="add-empty">Loading players…</p></div>
+        </div>
+      </div>
+    `,
+      { bare: true }
+    );
+    const box = ctx.list.querySelector("#add-rows");
+    let token = 0;
+    const figure = (value, digits = 1) => {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return "—";
+      return number.toFixed(digits);
+    };
+    const paint = (players) => {
+      box.innerHTML = players.length
+        ? players
+            .map((player, index) => {
+              const flagged = ["injured", "suspended", "unavailable", "doubt"].includes(player.status);
+              const photo = player.headshot || "";
+              return `<button type="button" class="add-row" data-buy="${index}">
+                <span class="add-mark${flagged ? " is-flag" : ""}" data-info title="${esc(player.status || "available")}">${flagged ? "!" : "i"}</span>
+                ${ctx.faceMarkup(photo, player.name, "add-face")}
+                <span class="add-who"><strong>${esc(lastName(player.name))}</strong><small>${esc(player.club || "—")} ${SLOT_LABEL[player.slot] || player.slot || ""}</small></span>
+                <span>${figure(player.form)}</span>
+                <span>${esc(ctx.money(player.price))}</span>
+                <span>${Number.isFinite(Number(player.owned)) ? `${figure(player.owned)}%` : "—"}</span>
+              </button>`;
+            })
+            .join("")
+        : `<p class="add-empty">${addQuery ? "No players match that search." : "No players for that filter."}</p>`;
+      box.querySelectorAll("[data-buy]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const hit = players[Number(button.dataset.buy)];
+          if (!hit) return;
+          const signing = {
+            id: hit.id,
+            name: hit.name,
+            club: hit.club || "",
+            slot: hit.slot || CORE().slotOf(hit.position || ""),
+            position: hit.position || hit.slot || "",
+            price: Number(hit.price),
+            headshot: hit.headshot || "",
+            espnHeadshot: "",
+            status: hit.status || "available",
+            form: hit.form || 0,
+            owned: hit.owned,
+          };
+          const reason = GAME().canSign(state, signing, ctx.matches || []);
+          if (reason) {
+            window.alert(reason);
+            return;
+          }
+          if (!window.confirm(`Buy ${signing.name} for ${ctx.money(signing.price)}?`)) return;
+          GAME().sign(state, signing);
+          persist();
+          go("transfers");
+        });
+        button.querySelector("[data-info]")?.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const hit = players[Number(button.dataset.buy)];
+          if (!hit) return;
+          state.pending = hit;
+          focusId = hit.id;
+          go("profile");
+        });
+      });
+    };
+    const load = async () => {
+      const mine = ++token;
+      const stamp = renderStamp;
+      const params = new URLSearchParams({
+        q: addQuery,
+        slot: addSlot,
+        club: addClub,
+        sort: addSort,
+        limit: "20",
+        maxPrice: addMax,
+      });
+      const data = await fetch(`/api/fantasy/players?${params}`).then((res) => res.json()).catch(() => ({ players: [] }));
+      if (mine !== token || stamp !== renderStamp) return;
+      const players = (data.players || []).slice(0, 20);
+      players.forEach((player) => {
+        if (player.club && !addClubs.includes(player.club)) addClubs.push(player.club);
+      });
+      addClubs.sort((a, b) => a.localeCompare(b));
+      const clubSelect = ctx.list.querySelector("#add-club");
+      if (clubSelect) {
+        const current = addClub;
+        clubSelect.innerHTML = `<option value="">All clubs</option>${addClubs.map((club) => `<option value="${esc(club)}">${esc(club)}</option>`).join("")}`;
+        clubSelect.value = current;
+      }
+      paint(players);
+    };
+    ctx.list.querySelector("#add-back")?.addEventListener("click", () => go("transfers"));
+    ctx.list.querySelector("#add-reset")?.addEventListener("click", () => {
+      addSlot = "";
+      addMax = "";
+      addClub = "";
+      addQuery = "";
+      addSort = "price";
+      render(ctx);
+    });
+    ctx.list.querySelector("#add-slot")?.addEventListener("change", (event) => {
+      addSlot = event.target.value;
+      load();
+    });
+    ctx.list.querySelector("#add-max")?.addEventListener("change", (event) => {
+      addMax = event.target.value;
+      load();
+    });
+    ctx.list.querySelector("#add-club")?.addEventListener("change", (event) => {
+      addClub = event.target.value;
+      load();
+    });
+    ctx.list.querySelectorAll("[data-add-sort]").forEach((button) => {
+      button.addEventListener("click", () => {
+        addSort = button.dataset.addSort;
+        render(ctx);
+      });
+    });
+    let searchTimer = 0;
+    ctx.list.querySelector("#add-search")?.addEventListener("submit", (event) => event.preventDefault());
+    ctx.list.querySelector("#add-search input")?.addEventListener("input", (event) => {
+      addQuery = event.target.value;
+      window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(load, 220);
+    });
+    load();
   }
 
   function chipName(id) {
@@ -2030,6 +2201,7 @@
     team: pageTeam,
     pick: pageTeam,
     transfers: pageTransfers,
+    add: pageAdd,
     players: pagePlayers,
     profile: pageProfile,
     compare: pageCompare,
@@ -2081,7 +2253,7 @@
   root.NINETY_FANTASY_UI = {
     render,
     screen: () => screen,
-    title: () => ({ compare: "Compare", h2h: "Head to head", cup: "Cup", draft: "Draft", planner: "Planner", admin: "Admin", alerts: "Notifications", season: "Season", profile: "Player", league: "League", pick: "Pick Team", prices: "Price Changes", pieces: "Set Piece Takers", more: "More" }[screen] || PAGES.find((page) => page[0] === screen)?.[1] || "Fantasy"),
+    title: () => ({ compare: "Compare", h2h: "Head to head", cup: "Cup", draft: "Draft", planner: "Planner", admin: "Admin", alerts: "Notifications", season: "Season", profile: "Player", league: "League", pick: "Pick Team", add: "Add Player", prices: "Price Changes", pieces: "Set Piece Takers", more: "More" }[screen] || PAGES.find((page) => page[0] === screen)?.[1] || "Fantasy"),
     back() {
       if (screen === "home") return false;
       screen = "home";
