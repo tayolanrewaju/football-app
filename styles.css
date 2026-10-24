@@ -104,16 +104,15 @@ button, input { font: inherit; color: inherit; }
 
 .brand {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
 }
 
 .app-logo {
-  width: 34px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   display: block;
   flex-shrink: 0;
-  margin-bottom: 2px;
 }
 
 .back-btn {
