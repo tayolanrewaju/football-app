@@ -2,4 +2,8 @@
 data/users.json
 data/sessions.json
 data/auth-config.json
+data/signup-codes.json
+data/espn-faces.json
+data/fantasy.json
+data/fantasy.json.bak
 __pycache__/
