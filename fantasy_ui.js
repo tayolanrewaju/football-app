@@ -45,6 +45,7 @@
   let renderStamp = 0;
   let rulesLoaded = false;
   let menuDismissBound = false;
+  let homeCache = { key: "", at: 0, data: null };
 
   function esc(value) {
     return ctx.escapeHtml(value ?? "");
@@ -60,6 +61,16 @@
     const before = new Set((state.achievements || []).map((item) => item.id));
     GAME().unlock(state);
     GAME().save(state);
+    clearTimeout(persist._sync);
+    persist._sync = setTimeout(() => {
+      if (!ctx?.user || !root.NINETY_AUTH?.syncAccount) return;
+      root.NINETY_AUTH.syncAccount({
+        fantasy: state,
+        country: state.country || ctx.user.country || "",
+        favouriteClub: state.favouriteClub || ctx.user.favouriteClub || "",
+        favouritePlayers: ctx.user.favouritePlayers || [],
+      }).catch(() => {});
+    }, 500);
     (state.achievements || [])
       .filter((item) => !before.has(item.id))
       .forEach((badge) => ctx.onNotice?.({ key: `badge-${badge.id}`, title: "Achievement", body: badge.name }));
@@ -296,19 +307,28 @@
 
   async function loadHomeBoard(stamp) {
     const codes = state.leagueCodes || [];
-    const leagues = [];
-    for (const code of codes) {
-      const league = await fetch(`/api/fantasy/league?code=${encodeURIComponent(code)}`).then((res) => res.json()).catch(() => null);
-      if (league?.code) leagues.push(league);
-    }
     const country = state.country || ctx.user?.country || "";
-    const [overall, week, local] = await Promise.all([
-      fetch("/api/fantasy/rankings").then((res) => res.json()).catch(() => ({ rankings: [] })),
-      fetch("/api/fantasy/rankings?sort=week").then((res) => res.json()).catch(() => ({ rankings: [] })),
-      country
-        ? fetch(`/api/fantasy/rankings?country=${encodeURIComponent(country)}`).then((res) => res.json()).catch(() => ({ rankings: [] }))
-        : Promise.resolve({ rankings: [] }),
-    ]);
+    const cacheKey = `${codes.join(",")}|${country}`;
+    let leagues;
+    let overall;
+    let week;
+    let local;
+    if (homeCache.key === cacheKey && Date.now() - homeCache.at < 20000 && homeCache.data) {
+      ({ leagues, overall, week, local } = homeCache.data);
+    } else {
+      const leagueResults = await Promise.all(
+        codes.map((code) => fetch(`/api/fantasy/league?code=${encodeURIComponent(code)}`).then((res) => res.json()).catch(() => null))
+      );
+      leagues = leagueResults.filter((league) => league?.code);
+      [overall, week, local] = await Promise.all([
+        fetch("/api/fantasy/rankings").then((res) => res.json()).catch(() => ({ rankings: [] })),
+        fetch("/api/fantasy/rankings?sort=week").then((res) => res.json()).catch(() => ({ rankings: [] })),
+        country
+          ? fetch(`/api/fantasy/rankings?country=${encodeURIComponent(country)}`).then((res) => res.json()).catch(() => ({ rankings: [] }))
+          : Promise.resolve({ rankings: [] }),
+      ]);
+      homeCache = { key: cacheKey, at: Date.now(), data: { leagues, overall, week, local } };
+    }
     if (stamp !== renderStamp || screen !== "home") return;
     const scores = (week.rankings || []).map((row) => Number(row.weekPoints) || 0);
     const average = scores.length ? Math.round(scores.reduce((sum, value) => sum + value, 0) / scores.length) : 0;
@@ -881,8 +901,10 @@
     ctx.list.querySelectorAll("[data-sell]").forEach((button) => {
       button.addEventListener("click", () => {
         const player = state.squad.find((item) => item.id === button.dataset.sell);
-        if (!player || !window.confirm(`Sell ${player.name}?`)) return;
-        if (GAME().locked(ctx.matches || []) && state.built && !["wildcard1", "wildcard2", "freehit"].includes(state.chipThisWeek)) {
+        if (!player || !window.confirm(`Remove ${player.name} from your squad?`)) return;
+        const open = GAME().openDeadline(ctx.matches || []);
+        const blocked = open.deadline != null && Date.now() > open.deadline;
+        if (blocked && state.built && !["wildcard1", "wildcard2", "freehit"].includes(state.chipThisWeek) && !["wildcard1", "wildcard2", "freehit"].includes(state.chipQueued)) {
           window.alert("The deadline has passed.");
           return;
         }
@@ -997,6 +1019,7 @@
           }
           if (!window.confirm(`Buy ${signing.name} for ${ctx.money(signing.price)}?`)) return;
           GAME().sign(state, signing);
+          transferTab = "pitch";
           persist();
           go("transfers");
         });
@@ -1449,6 +1472,7 @@
   function queueFaces(stamp) {
     const names = state.squad.map((player) => player.name).filter(Boolean);
     if (!names.length) return;
+    if (state.squad.every((player) => player.headshot || player.espnHeadshot)) return;
     const wanted = names.join("|");
     fetch(`/api/fantasy/faces?names=${encodeURIComponent(wanted)}`)
       .then((res) => res.json())
@@ -1471,12 +1495,15 @@
           }
           if (!["G", "D", "M", "A"].includes(player.slot) && ["G", "D", "M", "A"].includes(hit.slot)) {
             player.slot = hit.slot;
+            player._slotChanged = true;
             changed = true;
           }
         }
         if (!changed) return;
+        const slotChanged = state.squad.some((player) => player._slotChanged);
+        state.squad.forEach((player) => delete player._slotChanged);
         GAME().save(state);
-        render(ctx);
+        if (slotChanged) render(ctx);
       })
       .catch(() => {});
   }
@@ -2245,6 +2272,16 @@
     }
     GAME().roll(state, ctx.points?.total || 0, ctx.matches || []);
     GAME().save(state);
+    if (!ctx.user) {
+      shell(
+        `<div class="group tutor"><h3>Sign in to create a fantasy team</h3><p class="intel-note">Your squad, transfers, and leagues stay on the account, so they are here whenever you sign back in.</p><button type="button" class="auth-btn" id="fantasy-signin">Sign in</button></div>`,
+        { bare: true }
+      );
+      ctx.list.querySelector("#fantasy-signin")?.addEventListener("click", () => {
+        document.querySelector("#account-btn")?.click();
+      });
+      return;
+    }
     const view = views[screen] || pageHome;
     const result = view();
     if (result && typeof result.then === "function") result.catch(() => shell(`<div class="group"><div class="empty">That page could not load.</div></div>`));

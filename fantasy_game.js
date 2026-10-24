@@ -94,7 +94,16 @@
     return state;
   }
 
+  let lastSaved = "";
+
   function save(state) {
+    const stamp = state.savedAt;
+    delete state.savedAt;
+    const raw = JSON.stringify(state);
+    state.savedAt = stamp;
+    if (raw === lastSaved) return state;
+    lastSaved = raw;
+    state.savedAt = Date.now();
     localStorage.setItem(KEY, JSON.stringify(state));
     return state;
   }
@@ -485,6 +494,7 @@
     records,
     weekNumber,
     locked,
+    openDeadline,
     configure,
     offset,
     rollback,

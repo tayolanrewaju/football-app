@@ -142,6 +142,20 @@ def _pick(book: dict, name: str, club: str) -> dict | None:
     return None
 
 
+def _ladder_price(ladder: list[float], index: int, count: int) -> float:
+    """Map a rank onto the Premier League price ladder for the same position."""
+    if not ladder:
+        return 8.0
+    if count <= 1:
+        return ladder[len(ladder) // 2]
+    share = index / (count - 1)
+    pos = share * (len(ladder) - 1)
+    lo = int(pos)
+    hi = min(lo + 1, len(ladder) - 1)
+    mix = pos - lo
+    return ladder[lo] * (1 - mix) + ladder[hi] * mix
+
+
 def _laliga_to_fpl(market: float, median: float, maximum: float, fpl_min: float, fpl_median: float, fpl_max: float) -> float:
     """Keep a player's place in the LaLiga price list, on the Premier League price scale."""
     if maximum <= median:
@@ -241,8 +255,7 @@ def _load_books() -> dict:
         market = float(row.get("marketValue") or 0) / 1_000_000
         if market <= 0 or row.get("playerStatus") == "out_of_league":
             continue
-        native_fpl = _laliga_to_fpl(market, market_median, market_max, fpl_min, fpl_median, fpl_max)
-        derby = round(native_fpl * (DERBY_BUDGET / FPL_BUDGET), 1)
+        derby = 0.0
         slot = SLOT_FROM_LALIGA.get(str(row.get("positionId")), "M")
         nickname = row.get("nickname") or ""
         image = row.get("image") or ""
@@ -283,6 +296,23 @@ def _load_books() -> dict:
                 "clean_sheets": 0,
             }
         )
+    ladders = {slot: sorted(values) for slot, values in medians.items() if values}
+    by_slot: dict[str, list] = {}
+    for player in laliga_players:
+        by_slot.setdefault(player["slot"], []).append(player)
+    for slot, group in by_slot.items():
+        ladder = ladders.get(slot) or sorted(value for values in ladders.values() for value in values)
+        if not ladder:
+            continue
+        quality_order = sorted(group, key=lambda player: (float(player.get("form") or 0), float(player.get("points") or 0), player["native"]))
+        market_order = sorted(group, key=lambda player: player["native"])
+        market_index = {id(player): index for index, player in enumerate(market_order)}
+        count = len(quality_order)
+        for index, player in enumerate(quality_order):
+            from_quality = _ladder_price(ladder, index, count)
+            from_market = _ladder_price(ladder, market_index[id(player)], count)
+            blended = from_quality * 0.85 + from_market * 0.15
+            player["derby"] = round(min(ladder[-1], max(ladder[0], blended)), 1)
 
     position_price = {}
     for slot, values in medians.items():
