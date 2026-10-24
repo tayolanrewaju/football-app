@@ -133,8 +133,9 @@ function crest(nameOrTeam, sizeClass = "") {
   });
 }
 
-function leagueLogo(league, sizeClass = "") {
+function leagueLogo(league, sizeClass) {
   if (!league || !window.NINETY_LEAGUE_CREST) return "";
+  if (sizeClass == null) return window.NINETY_LEAGUE_CREST(league, "");
   return window.NINETY_LEAGUE_CREST(league, crestVariant(sizeClass) || "xs");
 }
 
