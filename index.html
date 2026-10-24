@@ -8,8 +8,8 @@
     <meta name="theme-color" content="#1A1A1A" />
     <meta name="description" content="Derby — live scores, transfers, teams, favourites, Ask AI." />
     <title>Derby</title>
-    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="favicon.svg" />
+    <link rel="icon" href="logo.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="logo.svg" />
     <link rel="preconnect" href="https://a.espncdn.com" />
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -19,8 +19,13 @@
         <header class="nav-bar">
           <div class="nav-left">
             <button type="button" class="back-btn" id="nav-back" hidden>‹ Back</button>
-            <p class="nav-eyebrow" id="nav-date"></p>
-            <h1 class="nav-title" id="nav-title">Matches</h1>
+            <div class="brand">
+              <img class="app-logo" src="logo.svg" alt="" width="34" height="42" />
+              <div>
+                <p class="nav-eyebrow" id="nav-date"></p>
+                <h1 class="nav-title" id="nav-title">Matches</h1>
+              </div>
+            </div>
           </div>
           <button type="button" class="account-btn" id="account-btn" aria-label="Account">
             <span id="account-avatar" class="account-avatar" aria-hidden="true">
